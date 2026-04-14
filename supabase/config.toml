@@ -29,7 +29,6 @@ enabled = true
 enabled = true
 port = 54323
 api_url = "http://127.0.0.1"
-open_browser = true
 
 [inbucket]
 enabled = true

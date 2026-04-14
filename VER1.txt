@@ -1,0 +1,881 @@
+<!--
+  Devices Dashboard (mock-data prototype)
+  - Single-file HTML you can open in a browser (no build tools).
+  - Uses Chart.js via CDN for the 2 pie charts.
+  - IMPORTANT: All data below is MOCK. Search for "TODO: REPLACE WITH REAL DATA" to hook your backend later.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Devices Dashboard</title>
+
+  <!-- Chart.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root
+    {
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --primary: #2f5fda;
+      --sidebar: #ffffff;
+      --shadow: 0 1px 2px rgba(0,0,0,0.06), 0 6px 18px rgba(0,0,0,0.05);
+      --radius: 10px;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+
+    * { box-sizing: border-box; }
+    body
+    {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    /* Top app bar */
+    .topbar
+    {
+      height: 56px;
+      background: var(--card);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+    }
+
+    .topbar-left
+    {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+    }
+
+    .burger
+    {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .topbar-right
+    {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .pill
+    {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* App layout: sidebar + main */
+    .app
+    {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: calc(100vh - 56px);
+    }
+
+    /* Sidebar */
+    .sidebar
+    {
+      background: var(--sidebar);
+      border-right: 1px solid var(--line);
+      padding: 14px 10px;
+    }
+
+    .nav-section-title
+    {
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .nav-item
+    {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 10px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .nav-item:hover { background: #f7f8fb; }
+    .nav-item.active
+    {
+      background: #eef2ff;
+      color: #1e3a8a;
+      font-weight: 600;
+    }
+
+    /* Main content */
+    .main
+    {
+      padding: 16px;
+    }
+
+    .crumbs
+    {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+
+    /* Dashboard grid (matches the screenshot layout) */
+    .grid
+    {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    .row-bottom
+    {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 14px;
+    }
+
+    .card
+    {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 12px 14px;
+    }
+
+    .card-header
+    {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .card-title
+    {
+      font-size: 15px;
+      font-weight: 650;
+      margin: 0;
+    }
+
+    .card-sub
+    {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .controls
+    {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    label
+    {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    input[type="date"]
+    {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+      background: #fff;
+      color: var(--text);
+    }
+
+    button
+    {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 7px 10px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    button.primary
+    {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .canvas-wrap
+    {
+      display: grid;
+      grid-template-columns: 1fr 260px; /* chart + legend area like in the screenshot */
+      gap: 12px;
+      align-items: center;
+      min-height: 280px;
+    }
+
+    .legend
+    {
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .legend-item
+    {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 0;
+    }
+
+    .legend-left
+    {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+
+    .swatch
+    {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+
+    /* Table */
+    table
+    {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th
+    {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 650;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+
+    tbody td
+    {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    .status
+    {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .dot
+    {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #ef4444; /* default red for disconnected */
+    }
+
+    .dot.ok { background: #22c55e; }
+
+    .mock-banner
+    {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #92400e;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      padding: 8px 10px;
+      border-radius: 10px;
+    }
+
+    @media (max-width: 1100px)
+    {
+      .app { grid-template-columns: 220px 1fr; }
+      .row-bottom { grid-template-columns: 1fr; }
+      .canvas-wrap { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="burger" title="Menu">☰</button>
+      <div>Organization</div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="pill">
+        <span>🕒</span>
+        <span>Last 30 days</span>
+      </div>
+      <div class="pill">English ⌄</div>
+      <div class="pill" title="User">👤</div>
+    </div>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="crumbs" style="margin: 8px 12px 10px 12px;">Home</div>
+
+      <div class="nav-item">
+        <span>🏠 Home</span>
+      </div>
+      <div class="nav-item">
+        <span>⭐ Starred</span>
+      </div>
+      <div class="nav-item active">
+        <span>📊 Dashboards</span>
+      </div>
+      <div class="nav-item">
+        <span>🔔 Alerting</span>
+      </div>
+      <div class="nav-item">
+        <span>⚙️ Administration</span>
+      </div>
+
+      <div class="nav-section-title">Sections (mock)</div>
+      <div class="nav-item"><span>Patients</span></div>
+      <div class="nav-item"><span>Caregivers</span></div>
+      <div class="nav-item"><span>Organization Users</span></div>
+      <div class="nav-item"><span>Devices</span></div>
+      <div class="nav-item"><span>Patient Monitoring Station</span></div>
+      <div class="nav-item"><span>Device Operation Center</span></div>
+      <div class="nav-item"><span>Cartridges</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="crumbs">Home &nbsp;&gt;&nbsp; Dashboards &nbsp;&gt;&nbsp; Devices Dashboard</div>
+
+      <div class="grid">
+        <!-- 1) Glove consumption pie + date filter -->
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title" id="gloveTitle">Glove Consumption</h3>
+              <div class="card-sub" id="gloveSubtitle">Filter: (mock range)</div>
+            </div>
+
+            <div class="controls">
+              <!-- Date filter controls -->
+              <label for="fromDate">From</label>
+              <input id="fromDate" type="date" />
+              <label for="toDate">To</label>
+              <input id="toDate" type="date" />
+              <button class="primary" id="applyFilterBtn">Apply</button>
+              <button id="resetFilterBtn">Reset</button>
+            </div>
+          </div>
+
+          <div class="canvas-wrap">
+            <div>
+              <canvas id="gloveChart" aria-label="Glove Consumption Pie Chart"></canvas>
+            </div>
+
+            <!-- Legend rendered manually to mimic the screenshot style -->
+            <div class="legend" id="gloveLegend"></div>
+          </div>
+
+          <div class="mock-banner">
+            MOCK DATA: Replace <b>gloveEvents</b> with your real glove-consumption events.
+            (See JS: <b>TODO: REPLACE WITH REAL DATA</b>)
+          </div>
+        </section>
+
+        <!-- Bottom row: Offline Devices table (left) + Connection Status pie (right) -->
+        <div class="row-bottom">
+          <!-- 2) Devices list/table -->
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Offline Devices</h3>
+                <div class="card-sub">List is generated from the devices array (mock)</div>
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Id</th>
+                  <th>Last Connected At</th>
+                  <th>Connected</th>
+                </tr>
+              </thead>
+              <tbody id="offlineDevicesTbody">
+                <!-- Filled by JS -->
+              </tbody>
+            </table>
+
+            <div class="mock-banner">
+              MOCK DATA: Replace <b>devices</b> with your real devices list + live connection status.
+              (See JS: <b>TODO: REPLACE WITH REAL DATA</b>)
+            </div>
+          </section>
+
+          <!-- 3) Live connection status pie -->
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title" id="connTitle">Device Connection Status</h3>
+                <div class="card-sub" id="connSubtitle">Total: (mock)</div>
+              </div>
+            </div>
+
+            <div class="canvas-wrap" style="grid-template-columns: 1fr 220px;">
+              <div>
+                <canvas id="connChart" aria-label="Connection Status Pie Chart"></canvas>
+              </div>
+              <div class="legend" id="connLegend"></div>
+            </div>
+
+            <div class="mock-banner">
+              MOCK DATA: Connection chart is computed from <b>devices</b> (connected/disconnected).
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    /********************************************************************
+     * TODO: REPLACE WITH REAL DATA (Glove consumption)
+     *
+     * Expected shape example (your backend can return something similar):
+     * gloveEvents = [
+     *   { ts: "2026-02-10T10:12:00Z", gloveType: "Small", qty: 1 },
+     *   { ts: "2026-02-10T10:13:00Z", gloveType: "Medium", qty: 2 },
+     *   ...
+     * ]
+     ********************************************************************/
+    const gloveEvents =
+    [
+      { ts: "2026-01-12T09:05:00Z", gloveType: "Small", qty: 40 },
+      { ts: "2026-01-15T11:05:00Z", gloveType: "Medium", qty: 35 },
+      { ts: "2026-01-20T16:10:00Z", gloveType: "Large", qty: 28 },
+      { ts: "2026-01-25T08:55:00Z", gloveType: "Extra Large", qty: 10 },
+      { ts: "2026-02-01T10:11:00Z", gloveType: "Small", qty: 120 },
+      { ts: "2026-02-02T12:18:00Z", gloveType: "Medium", qty: 140 },
+      { ts: "2026-02-03T14:24:00Z", gloveType: "Large", qty: 90 },
+      { ts: "2026-02-04T18:31:00Z", gloveType: "Extra Large", qty: 50 },
+      { ts: "2026-02-05T08:12:00Z", gloveType: "Small", qty: 250 },
+      { ts: "2026-02-06T07:02:00Z", gloveType: "Medium", qty: 300 },
+      { ts: "2026-02-07T09:41:00Z", gloveType: "Large", qty: 240 },
+      { ts: "2026-02-08T16:52:00Z", gloveType: "Extra Large", qty: 204 },
+      { ts: "2026-02-09T10:20:00Z", gloveType: "Small", qty: 533 },
+      { ts: "2026-02-10T12:55:00Z", gloveType: "Medium", qty: 463 },
+      { ts: "2026-02-10T15:10:00Z", gloveType: "Large", qty: 388 },
+      { ts: "2026-02-10T18:30:00Z", gloveType: "Extra Large", qty: 50 }
+    ];
+
+    /********************************************************************
+     * TODO: REPLACE WITH REAL DATA (Devices list + live connection)
+     *
+     * Expected shape example:
+     * devices = [
+     *   { id: "00-IG-100-2507000066", lastConnectedAt: "2026-02-09T15:27:24Z", connected: false },
+     *   { id: "20762_Machine_0020", lastConnectedAt: "2026-02-09T16:38:30Z", connected: false },
+     *   ...
+     * ]
+     ********************************************************************/
+    const devices =
+    [
+      { id: "00-IG-100-2507000057", lastConnectedAt: "2026-02-06T13:07:12Z", connected: false },
+      { id: "1296_Machine_0012Same3", lastConnectedAt: "2026-02-08T11:56:43Z", connected: false },
+      { id: "ariel", lastConnectedAt: "2026-02-08T18:34:45Z", connected: false },
+      { id: "00-IG-100-2507000070", lastConnectedAt: "2026-02-09T15:19:23Z", connected: false },
+      { id: "00-IG-100-2507000066", lastConnectedAt: "2026-02-09T15:27:24Z", connected: false },
+      { id: "00-IG-100-2507000050", lastConnectedAt: "2026-02-09T15:45:03Z", connected: false },
+      { id: "20762_Machine_0020", lastConnectedAt: "2026-02-09T16:38:30Z", connected: false },
+
+      /* Add a few connected devices so the pie isn't 100% red */
+      { id: "00-IG-100-2507000099", lastConnectedAt: "2026-02-11T00:35:10Z", connected: true },
+      { id: "00-IG-100-2507000100", lastConnectedAt: "2026-02-11T00:41:18Z", connected: true },
+      { id: "00-IG-100-2507000101", lastConnectedAt: "2026-02-11T00:44:02Z", connected: true },
+      { id: "00-IG-100-2507000102", lastConnectedAt: "2026-02-11T00:44:10Z", connected: true }
+    ];
+
+    /* Color mapping to match the screenshot feel */
+    const gloveColors =
+    {
+      "Small": "#49a7e8",
+      "Medium": "#2ecc71",
+      "Large": "#f39c12",
+      "Extra Large": "#e74c3c"
+    };
+
+    const connectionColors =
+    {
+      "Disconnected": "#e74c3c",
+      "Connected": "#22c55e"
+    };
+
+    /* Chart.js instances (so we can update in-place) */
+    let gloveChart = null;
+    let connChart = null;
+
+    function isoDateOnly(isoString)
+    {
+      /* Convert ISO timestamp -> YYYY-MM-DD (in local time display) */
+      const d = new Date(isoString);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function formatDisplayDateTime(isoString)
+    {
+      /* Format for table display: DD/MM/YYYY HH:mm:ss (like the screenshot) */
+      const d = new Date(isoString);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mi = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}`;
+    }
+
+    function getDefaultRangeFromData()
+    {
+      /* Pick default date filter bounds based on existing events */
+      const dates = gloveEvents.map(e => new Date(e.ts).getTime()).sort((a,b) => a-b);
+      const min = new Date(dates[0]);
+      const max = new Date(dates[dates.length - 1]);
+
+      /* Use YYYY-MM-DD for input[type=date] */
+      const from = isoDateOnly(min.toISOString());
+      const to = isoDateOnly(max.toISOString());
+
+      return { from, to };
+    }
+
+    function filterGloveEvents(fromDateStr, toDateStr)
+    {
+      /* Inclusive filtering on date (not time) */
+      const from = new Date(`${fromDateStr}T00:00:00`).getTime();
+      const to = new Date(`${toDateStr}T23:59:59`).getTime();
+
+      return gloveEvents.filter(e =>
+      {
+        const t = new Date(e.ts).getTime();
+        return t >= from && t <= to;
+      });
+    }
+
+    function sumGlovesByType(events)
+    {
+      /* Aggregate quantities by glove type */
+      const totals = { "Small": 0, "Medium": 0, "Large": 0, "Extra Large": 0 };
+
+      for (const e of events)
+      {
+        if (totals[e.gloveType] === undefined)
+        {
+          totals[e.gloveType] = 0;
+        }
+        totals[e.gloveType] += e.qty;
+      }
+      return totals;
+    }
+
+    function renderLegend(containerEl, labels, values, colors, total)
+    {
+      /* Manual legend like the screenshot: label on left, percentage on right */
+      containerEl.innerHTML = "";
+
+      for (let i = 0; i < labels.length; i++)
+      {
+        const label = labels[i];
+        const value = values[i];
+        const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+
+        const row = document.createElement("div");
+        row.className = "legend-item";
+
+        const left = document.createElement("div");
+        left.className = "legend-left";
+
+        const sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.style.background = colors[label] || "#999";
+
+        const txt = document.createElement("span");
+        txt.textContent = label;
+
+        left.appendChild(sw);
+        left.appendChild(txt);
+
+        const right = document.createElement("div");
+        right.textContent = `${pct}%`;
+
+        row.appendChild(left);
+        row.appendChild(right);
+
+        containerEl.appendChild(row);
+      }
+    }
+
+    function initGloveChart()
+    {
+      const ctx = document.getElementById("gloveChart");
+      const legendEl = document.getElementById("gloveLegend");
+
+      const range = getDefaultRangeFromData();
+      document.getElementById("fromDate").value = range.from;
+      document.getElementById("toDate").value = range.to;
+
+      const filtered = filterGloveEvents(range.from, range.to);
+      const totals = sumGlovesByType(filtered);
+
+      const labels = Object.keys(totals);
+      const values = labels.map(k => totals[k]);
+      const totalValue = values.reduce((a,b) => a + b, 0);
+
+      document.getElementById("gloveTitle").textContent = `Glove Consumption (Total: ${totalValue})`;
+      document.getElementById("gloveSubtitle").textContent =
+        `Filter: ${range.from} 00:00:00 to ${range.to} 23:59:59`;
+
+      renderLegend(legendEl, labels, values, gloveColors, totalValue);
+
+      gloveChart = new Chart(ctx,
+      {
+        type: "pie",
+        data:
+        {
+          labels,
+          datasets:
+          [{
+            data: values,
+            backgroundColor: labels.map(l => gloveColors[l] || "#999"),
+            borderColor: "#ffffff",
+            borderWidth: 2
+          }]
+        },
+        options:
+        {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins:
+          {
+            legend: { display: false },
+            tooltip:
+            {
+              callbacks:
+              {
+                label: (ctx) =>
+                {
+                  const v = ctx.raw;
+                  const pct = totalValue > 0 ? ((v / totalValue) * 100).toFixed(1) : "0.0";
+                  return ` ${ctx.label}: ${v} (${pct}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      /* Give the canvas a stable height so the card looks like the screenshot */
+      ctx.parentElement.style.height = "300px";
+    }
+
+    function applyGloveFilter()
+    {
+      const from = document.getElementById("fromDate").value;
+      const to = document.getElementById("toDate").value;
+
+      const filtered = filterGloveEvents(from, to);
+      const totals = sumGlovesByType(filtered);
+
+      const labels = Object.keys(totals);
+      const values = labels.map(k => totals[k]);
+      const totalValue = values.reduce((a,b) => a + b, 0);
+
+      document.getElementById("gloveTitle").textContent = `Glove Consumption (Total: ${totalValue})`;
+      document.getElementById("gloveSubtitle").textContent =
+        `Filter: ${from} 00:00:00 to ${to} 23:59:59`;
+
+      renderLegend(document.getElementById("gloveLegend"), labels, values, gloveColors, totalValue);
+
+      /* Update chart in-place */
+      gloveChart.data.labels = labels;
+      gloveChart.data.datasets[0].data = values;
+      gloveChart.data.datasets[0].backgroundColor = labels.map(l => gloveColors[l] || "#999");
+      gloveChart.update();
+    }
+
+    function resetGloveFilter()
+    {
+      const range = getDefaultRangeFromData();
+      document.getElementById("fromDate").value = range.from;
+      document.getElementById("toDate").value = range.to;
+      applyGloveFilter();
+    }
+
+    function renderOfflineDevicesTable()
+    {
+      /* Show only disconnected devices (like the "Offline Devices" table in the screenshot) */
+      const tbody = document.getElementById("offlineDevicesTbody");
+      tbody.innerHTML = "";
+
+      const offline = devices.filter(d => !d.connected);
+
+      for (const d of offline)
+      {
+        const tr = document.createElement("tr");
+
+        const tdId = document.createElement("td");
+        tdId.textContent = d.id;
+
+        const tdLast = document.createElement("td");
+        tdLast.textContent = formatDisplayDateTime(d.lastConnectedAt);
+
+        const tdConn = document.createElement("td");
+        const status = document.createElement("span");
+        status.className = "status";
+
+        const dot = document.createElement("span");
+        dot.className = "dot"; /* red */
+
+        const txt = document.createElement("span");
+        txt.textContent = "Disconnected";
+
+        status.appendChild(dot);
+        status.appendChild(txt);
+        tdConn.appendChild(status);
+
+        tr.appendChild(tdId);
+        tr.appendChild(tdLast);
+        tr.appendChild(tdConn);
+
+        tbody.appendChild(tr);
+      }
+    }
+
+    function initConnectionChart()
+    {
+      const ctx = document.getElementById("connChart");
+      const legendEl = document.getElementById("connLegend");
+
+      const total = devices.length;
+      const connected = devices.filter(d => d.connected).length;
+      const disconnected = total - connected;
+
+      document.getElementById("connTitle").textContent = `Device Connection Status (Total: ${total})`;
+      document.getElementById("connSubtitle").textContent = `Connected devices are computed from devices[].connected (mock)`;
+
+      const labels = ["Disconnected", "Connected"];
+      const values = [disconnected, connected];
+
+      renderLegend(legendEl, labels, values, connectionColors, total);
+
+      connChart = new Chart(ctx,
+      {
+        type: "pie",
+        data:
+        {
+          labels,
+          datasets:
+          [{
+            data: values,
+            backgroundColor: labels.map(l => connectionColors[l] || "#999"),
+            borderColor: "#ffffff",
+            borderWidth: 2
+          }]
+        },
+        options:
+        {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins:
+          {
+            legend: { display: false },
+            tooltip:
+            {
+              callbacks:
+              {
+                label: (ctx) =>
+                {
+                  const v = ctx.raw;
+                  const pct = total > 0 ? ((v / total) * 100).toFixed(1) : "0.0";
+                  return ` ${ctx.label}: ${v} (${pct}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      ctx.parentElement.style.height = "260px";
+    }
+
+    function wireEvents()
+    {
+      document.getElementById("applyFilterBtn").addEventListener("click", () =>
+      {
+        /* Apply date-range filter to glove consumption pie */
+        applyGloveFilter();
+      });
+
+      document.getElementById("resetFilterBtn").addEventListener("click", () =>
+      {
+        /* Reset date-range to defaults derived from mock data */
+        resetGloveFilter();
+      });
+    }
+
+    function boot()
+    {
+      /* Initialize everything */
+      wireEvents();
+      initGloveChart();
+      renderOfflineDevicesTable();
+      initConnectionChart();
+    }
+
+    boot();
+  </script>
+</body>
+</html>

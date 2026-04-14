@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>BIOT Devices Dashboard</title>
+  <script>
+    window.DASHBOARD_CONFIG = {
+      appsScriptUrl: "https://script.google.com/macros/s/AKfycbwxoyv6aji2RFXK29bnpPssLyylNIeRk9JsAdZs8VB9pByiKlnONwSO953He873lUn5/exec"
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260413-2" />
+  <script src="./dashboard.js?v=20260414-1" defer></script>
+</head>
+<body>
+  <div class="app-shell product-shell">
+    <main class="main product-main">
+      <header class="dashboard-head">
+        <div class="dashboard-heading">
+          <div class="eyebrow">BIOT</div>
+          <h1>Devices Dashboard</h1>
+        </div>
+      </header>
+
+      <section class="filter-card compact-filters">
+        <div class="filter-grid product-filter-grid">
+          <label class="field">
+            <span>From</span>
+            <input id="fromDate" type="date" />
+          </label>
+
+          <label class="field">
+            <span>To</span>
+            <input id="toDate" type="date" />
+          </label>
+
+          <label id="organizationField" class="field hidden">
+            <span>Organization</span>
+            <select id="organizationSelect"></select>
+          </label>
+
+          <div class="filter-actions">
+            <button id="refreshBtn" class="primary-button" type="button">Refresh</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="dashboardError" class="inline-error hidden"></div>
+      <div id="dashboardLoading" class="loading-strip hidden">Refreshing dashboard...</div>
+
+      <section class="card-grid">
+        <article class="card chart-card">
+          <div class="card-header simple-card-header">
+            <h3>Device Connection Status</h3>
+          </div>
+
+          <div id="connectionMetrics" class="metric-grid"></div>
+
+          <div class="chart-layout">
+            <div class="chart-area">
+              <canvas id="connectionChart" aria-label="Device connection status chart"></canvas>
+            </div>
+            <div id="connectionLegend" class="legend"></div>
+          </div>
+        </article>
+
+        <article class="card chart-card">
+          <div class="card-header simple-card-header">
+            <h3>Glove Consumption</h3>
+          </div>
+
+          <div id="gloveMetrics" class="metric-grid"></div>
+
+          <div class="chart-layout">
+            <div class="chart-area">
+              <canvas id="gloveChart" aria-label="Glove consumption chart"></canvas>
+            </div>
+            <div id="gloveLegend" class="legend"></div>
+          </div>
+        </article>
+
+        <article class="card chart-card">
+          <div class="card-header simple-card-header">
+            <h3>Sanitizer Status</h3>
+          </div>
+
+          <div id="sanitizerMetrics" class="metric-grid"></div>
+
+          <div class="chart-layout">
+            <div class="chart-area">
+              <canvas id="sanitizerChart" aria-label="Sanitizer status chart"></canvas>
+            </div>
+            <div id="sanitizerLegend" class="legend"></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="table-grid">
+        <article class="card table-card">
+          <div class="card-header">
+            <div>
+              <h3>Offline Devices</h3>
+            </div>
+            <div id="offlineCount" class="count-badge">0</div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Last Connected At</th>
+                  <th>Connected</th>
+                </tr>
+              </thead>
+              <tbody id="offlineTableBody"></tbody>
+            </table>
+          </div>
+
+          <div id="offlineEmpty" class="empty-state hidden">
+            No disconnected devices found.
+          </div>
+        </article>
+
+        <article class="card table-card">
+          <div class="card-header">
+            <div>
+              <h3>Sanitizer Devices</h3>
+            </div>
+            <div id="sanitizerCount" class="count-badge">0</div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Sanitizer Status</th>
+                </tr>
+              </thead>
+              <tbody id="sanitizerTableBody"></tbody>
+            </table>
+          </div>
+
+          <div id="sanitizerEmpty" class="empty-state hidden">
+            No sanitizer devices found.
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

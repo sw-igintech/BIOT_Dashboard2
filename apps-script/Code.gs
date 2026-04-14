@@ -1,3 +1,9 @@
+// =============================================================================
+// ARCHIVED — no longer the active backend path.
+// The dashboard now uses Supabase Edge Functions (supabase/functions/biot-dashboard).
+// This file is kept for reference only.
+// =============================================================================
+
 const DEFAULT_CONFIG = {
   BIOT_BASE_URL: 'https://api.dev.igin.biot-med.com',
 };

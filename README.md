@@ -1,67 +1,101 @@
-# Machines Dashboard
+# BIOT Devices Dashboard
 
-This project is a static GitHub Pages dashboard backed by a single Google Apps Script web app.
+Static frontend on **GitHub Pages** backed by a **Supabase Edge Function** that proxies live BIOT API calls server-side.
 
-Configured frontend endpoint:
+## Architecture
 
-`https://script.google.com/macros/s/AKfycbwtCs6khyngFpoq7UwuSZpVcz6Y600uZIHjnUzXVF7uzdE6z1wok9fsvquzDm_U5Wen/exec`
+```
+Browser (GitHub Pages)
+    │
+    │  fetch() — plain HTTPS, no JSONP, no Google auth
+    ▼
+Supabase Edge Function  /functions/v1/biot-dashboard
+    │
+    │  server-side HTTP — BIOT credentials never leave the server
+    ▼
+BIOT API  (api.dev.igin.biot-med.com)
+```
 
-## Final Deployment Files
+BIOT is the **only** source of truth. Supabase is used purely as a server execution environment.
 
-GitHub Pages:
-- `index.html`
-- `dashboard.css`
-- `dashboard.js`
+---
 
-Google Apps Script:
-- `apps-script/Code.gs`
+## Deploy (one time)
 
-## Required Apps Script Configuration
+### 1 — Install Supabase CLI and log in
 
-Set these Script Properties in the Apps Script project:
-- `BIOT_BASE_URL=https://api.dev.igin.biot-med.com`
-- `BIOT_USERNAME=your BIOT username`
-- `BIOT_PASSWORD=your BIOT password`
+```bash
+# macOS
+brew install supabase/tap/supabase
 
-Optional if Generic Entity V3 needs a different host in your BIOT environment:
-- `GENERIC_ENTITY_BASE_URL=https://apidev.biot-med.com`
+# Linux
+curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz \
+  | tar -xz -C /usr/local/bin
 
-If `GENERIC_ENTITY_BASE_URL` is not set, the app uses `BIOT_BASE_URL` for glove queries too.
+supabase login                                        # opens browser
+supabase link --project-ref qjkrkqyycujmjxbfthev
+```
 
-## Apps Script Setup
+### 2 — Set BIOT secrets
 
-1. Open the Apps Script project.
-2. Copy `apps-script/Code.gs` into the project.
-3. Set the Script Properties above.
-4. Deploy a new Web App version after updating the script.
-5. Use access settings that allow the GitHub Pages site to call the deployed `/exec` URL.
+```bash
+supabase secrets set \
+  BIOT_BASE_URL=https://api.dev.igin.biot-med.com \
+  BIOT_USERNAME=your-biot-username \
+  BIOT_PASSWORD=your-biot-password
+```
 
-## Frontend Setup
+### 3 — Deploy the Edge Function
 
-Publish these files to GitHub Pages:
-- `index.html`
-- `dashboard.css`
-- `dashboard.js`
+```bash
+supabase functions deploy biot-dashboard --no-verify-jwt
+```
 
-The Apps Script URL is already set in `index.html`.
+### 4 — Push the frontend
 
-## Runtime Notes
+```bash
+git push origin main
+```
 
-- BIOT credentials stay only in Apps Script.
-- The browser never calls BIOT directly.
-- Organization users are locked to their own organization.
-- Manufacturer users get an organization selector and can view all accessible organizations.
-- Glove data is fetched from Generic Entity V3 `device_event` with pagination.
-- The frontend now defaults to the last 14 days for a faster first load.
-- Wider date ranges are still supported.
-- The Apps Script backend isolates glove failures so device and sanitizer widgets can still render.
-- After changing `apps-script/Code.gs`, you must redeploy the Apps Script Web App.
+GitHub Pages will serve the updated `index.html` / `dashboard.js` / `dashboard.css` automatically.
 
-## Old Backend Files No Longer Used
+---
 
-These files are no longer part of the final deployment path:
-- `app.py`
-- `biot_client.py`
-- `dashboard_service.py`
-- `requirements.txt`
-- `.env.example`
+## Dashboard widgets
+
+| Widget | BIOT source |
+|---|---|
+| Device Connection Status | `GET /device/v2/devices` → `_status._connection._connected` |
+| Offline Devices table | same → `_status._connection._lastConnectedTime` |
+| Sanitizer Status chart | same → `_status.septol_availability1` |
+| Sanitizer Devices table | same |
+| Glove Consumption | `GET /generic-entity/v3/generic-entities/device_event` (GLOVE_TAKEN, all pages) |
+
+---
+
+## Key files
+
+| File | Purpose |
+|---|---|
+| `index.html` | Dashboard shell + Supabase endpoint config |
+| `dashboard.js` | All rendering + API fetch logic |
+| `dashboard.css` | Visual styles |
+| `supabase/functions/biot-dashboard/index.ts` | Edge Function — BIOT proxy |
+| `supabase/config.toml` | Supabase project config |
+| `.env.example` | Template showing required secrets |
+| `apps-script/Code.gs` | **ARCHIVED** — old backend, not active |
+
+---
+
+## Local development
+
+```bash
+# Create .env.local (not committed)
+echo "BIOT_BASE_URL=https://api.dev.igin.biot-med.com" >> .env.local
+echo "BIOT_USERNAME=..." >> .env.local
+echo "BIOT_PASSWORD=..." >> .env.local
+
+supabase functions serve biot-dashboard --env-file .env.local
+```
+
+Then temporarily change `supabaseEdgeUrl` in `index.html` to `http://localhost:54321/functions/v1/biot-dashboard`.

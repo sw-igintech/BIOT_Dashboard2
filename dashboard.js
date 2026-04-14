@@ -88,7 +88,7 @@ function wireUi() {
 }
 
 async function refreshDashboard() {
-  const appsScriptUrl = getAppsScriptUrl();
+  const appsScriptUrl = getEdgeUrl();
   if (!appsScriptUrl) {
     destroyCharts();
     showDashboardError("Dashboard service is not configured.");
@@ -551,73 +551,46 @@ function destroyCharts() {
 }
 
 async function appsScriptRequest(params) {
-  return appsScriptJsonpRequest(params);
-}
-
-function appsScriptJsonpRequest(params) {
-  const appsScriptUrl = getAppsScriptUrl();
-  if (!appsScriptUrl) {
-    return Promise.reject(new Error("Dashboard service is not configured."));
+  const edgeUrl = getEdgeUrl();
+  if (!edgeUrl) {
+    throw new Error("Dashboard service is not configured.");
   }
 
-  const callbackName = `__biotDashboardCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const query = new URLSearchParams({ _: String(Date.now()) });
+  appendQueryParams(query, params);
 
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    let settled = false;
-    const timeoutId = window.setTimeout(() => {
-      finishWithError(buildTransportError(GENERIC_REQUEST_ERROR, "jsonp"));
-    }, REQUEST_TIMEOUT_MS);
+  const headers = { "Content-Type": "application/json" };
+  const anonKey = getAnonKey();
+  if (anonKey) {
+    headers["apikey"] = anonKey;
+    headers["Authorization"] = `Bearer ${anonKey}`;
+  }
 
-    const query = new URLSearchParams({ callback: callbackName, _: String(Date.now()) });
-    appendQueryParams(query, params);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    window[callbackName] = (payload) => {
-      if (!payload || payload.ok === false) {
-        finishWithError(buildResponseError(resolveErrorMessage(payload), "jsonp"));
-        return;
-      }
-      finishWithSuccess(payload.data);
-    };
+  try {
+    const response = await fetch(`${edgeUrl}?${query.toString()}`, {
+      method: "GET",
+      headers,
+      signal: controller.signal,
+    });
 
-    script.async = true;
-    script.onload = () => {
-      window.setTimeout(() => {
-        if (!settled) {
-          finishWithError(buildTransportError(GENERIC_REQUEST_ERROR, "jsonp"));
-        }
-      }, 1000);
-    };
-    script.onerror = () => {
-      finishWithError(buildTransportError(GENERIC_REQUEST_ERROR, "jsonp"));
-    };
-    script.src = `${appsScriptUrl}${appsScriptUrl.includes("?") ? "&" : "?"}${query.toString()}`;
-    document.body.appendChild(script);
+    const payload = await response.json();
 
-    function finishWithSuccess(data) {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      resolve(data);
+    if (!payload || payload.ok === false) {
+      throw buildResponseError(resolveErrorMessage(payload), "fetch");
     }
 
-    function finishWithError(error) {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      reject(error);
+    return payload.data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw buildTransportError(GENERIC_REQUEST_ERROR, "fetch");
     }
-
-    function cleanup() {
-      window.clearTimeout(timeoutId);
-      delete window[callbackName];
-      script.remove();
-    }
-  });
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function appendQueryParams(query, params) {
@@ -688,11 +661,16 @@ function buildDateRangePayload() {
   };
 }
 
-function getAppsScriptUrl() {
-  const value = window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.appsScriptUrl === "string"
-    ? window.DASHBOARD_CONFIG.appsScriptUrl.trim()
+function getEdgeUrl() {
+  return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseEdgeUrl === "string"
+    ? window.DASHBOARD_CONFIG.supabaseEdgeUrl.trim()
     : "";
-  return value;
+}
+
+function getAnonKey() {
+  return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseAnonKey === "string"
+    ? window.DASHBOARD_CONFIG.supabaseAnonKey.trim()
+    : "";
 }
 
 function setDashboardLoading(isLoading) {

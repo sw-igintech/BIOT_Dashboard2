@@ -214,7 +214,14 @@ async function getDevices(config: BiotConfig, accessToken: string): Promise<unkn
   let page = 0;
 
   while (true) {
-    const searchRequest = { limit: 100, page };
+    // "__validTo" IS NULL mirrors the Grafana SQL filter that the real BIOT
+    // dashboard uses — it selects only the current/active version of each
+    // device record, excluding historical (superseded) rows.
+    const searchRequest = {
+      filter: { "__validTo": { eq: null } },
+      limit: 100,
+      page,
+    };
     const payload = await fetchBiot(config, "GET", "/device/v2/devices", {
       accessToken,
       query: { searchRequest: JSON.stringify(searchRequest) },

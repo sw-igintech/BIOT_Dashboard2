@@ -210,8 +210,29 @@ async function getCurrentUser(config: BiotConfig, accessToken: string): Promise<
 }
 
 async function getDevices(config: BiotConfig, accessToken: string): Promise<unknown[]> {
-  const payload = await fetchBiot(config, "GET", "/device/v2/devices", { accessToken });
-  return extractItems(payload, ["devices", "items", "data", "results"]);
+  const allDevices: unknown[] = [];
+  let page = 0;
+
+  while (true) {
+    const searchRequest = { limit: 100, page };
+    const payload = await fetchBiot(config, "GET", "/device/v2/devices", {
+      accessToken,
+      query: { searchRequest: JSON.stringify(searchRequest) },
+    });
+
+    const items = extractItems(payload, ["devices", "items", "data", "results"]);
+    if (!items.length) break;
+
+    allDevices.push(...items);
+
+    const totalPages = extractTotalPages(payload);
+    if (totalPages !== null && page + 1 >= totalPages) break;
+    if (items.length < 100) break;
+
+    page += 1;
+  }
+
+  return allDevices;
 }
 
 async function getGloveSummary(

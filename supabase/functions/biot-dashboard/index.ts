@@ -3,14 +3,17 @@
 // Pure BIOT proxy. No database. No caching. No sync.
 // Frontend → this function → BIOT APIs → Frontend.
 //
-// Required secrets (supabase secrets set):
+// Required secret (supabase secrets set):
 //   BIOT_BASE_URL   https://api.dev.igin.biot-med.com
-//   BIOT_USERNAME   service-account username
-//   BIOT_PASSWORD   service-account password
+//
+// Actions:
+//   POST { action: "login", username, password }   → { accessToken, refreshToken, userId }
+//   POST { action: "refresh", refreshToken }        → { accessToken, refreshToken }
+//   GET  ?action=dashboard&...  (x-biot-token hdr) → full dashboard payload
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-biot-token",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -40,8 +43,6 @@ const GLOVE_BREAKDOWN: [string, string][] = [
 
 interface BiotConfig {
   baseUrl: string;
-  username: string;
-  password: string;
 }
 
 interface DateRange {
@@ -79,6 +80,14 @@ interface NormalizedDevice {
   sanitizerValue: unknown;
 }
 
+// Thrown when BIOT returns 401 so the Edge Function can propagate it
+class BiotAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BiotAuthError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -93,19 +102,61 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const params: Record<string, string> = {};
     url.searchParams.forEach((v, k) => { params[k] = v; });
 
-    const action = params.action ?? "dashboard";
+    // Parse JSON body for POST requests
+    let body: Record<string, unknown> = {};
+    if (req.method === "POST") {
+      try { body = await req.json(); } catch { /* ignore malformed body */ }
+    }
 
+    const action = (typeof body.action === "string" ? body.action : null) ?? params.action ?? "dashboard";
+
+    // ── health ──────────────────────────────────────────────────────────────
     if (action === "health") {
       return ok({ ok: true, backend: "Supabase Edge Function", timestamp: new Date().toISOString() });
     }
 
+    // ── login ───────────────────────────────────────────────────────────────
+    if (action === "login") {
+      const username = typeof body.username === "string" ? body.username.trim() : "";
+      const password = typeof body.password === "string" ? body.password : "";
+      if (!username || !password) {
+        return err({ ok: false, error: { message: "username and password are required." } }, 400);
+      }
+      const data = await loginProxy(username, password);
+      return ok({ ok: true, data });
+    }
+
+    // ── token refresh ────────────────────────────────────────────────────────
+    if (action === "refresh") {
+      const refreshToken = typeof body.refreshToken === "string" ? body.refreshToken.trim() : "";
+      if (!refreshToken) {
+        return err({ ok: false, error: { message: "refreshToken is required." } }, 400);
+      }
+      const data = await refreshProxy(refreshToken);
+      return ok({ ok: true, data });
+    }
+
+    // ── dashboard ────────────────────────────────────────────────────────────
     if (action === "dashboard") {
-      const data = await buildDashboard(params);
+      const userToken = req.headers.get("x-biot-token");
+      if (!userToken) {
+        return new Response(
+          JSON.stringify({ ok: false, error: { message: "Not authenticated. Please log in." } }),
+          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      const data = await buildDashboard(params, userToken);
       return ok({ ok: true, data });
     }
 
     return err({ ok: false, error: { message: `Unknown action: ${action}` } }, 400);
   } catch (e) {
+    if (e instanceof BiotAuthError) {
+      return new Response(
+        JSON.stringify({ ok: false, error: { message: e.message } }),
+        { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
     const message = e instanceof Error ? e.message : "Unexpected error";
     console.error("[biot-dashboard]", message);
     return err({ ok: false, error: { message } }, 500);
@@ -130,30 +181,52 @@ function err(body: unknown, status: number): Response {
 // Config
 // ---------------------------------------------------------------------------
 
-function getConfig(): BiotConfig {
+function getBaseUrl(): string {
   const baseUrl = Deno.env.get("BIOT_BASE_URL");
-  const username = Deno.env.get("BIOT_USERNAME");
-  const password = Deno.env.get("BIOT_PASSWORD");
   if (!baseUrl) throw new Error("BIOT_BASE_URL secret is not set.");
-  if (!username) throw new Error("BIOT_USERNAME secret is not set.");
-  if (!password) throw new Error("BIOT_PASSWORD secret is not set.");
-  return { baseUrl, username, password };
+  return baseUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Auth proxy helpers
+// ---------------------------------------------------------------------------
+
+async function loginProxy(username: string, password: string): Promise<Record<string, unknown>> {
+  const config: BiotConfig = { baseUrl: getBaseUrl() };
+  const payload = await fetchBiot(config, "POST", "/ums/v2/users/login", {
+    body: { username, password },
+    expectedStatuses: [200, 201],
+  });
+  const accessToken = nestedGet(payload, ["accessJwt", "token"]) as string | null;
+  const refreshToken = nestedGet(payload, ["refreshJwt", "token"]) as string | null;
+  const userId = payload.userId as string | null;
+  if (!accessToken) throw new Error("BIOT login did not return an access token.");
+  return { accessToken, refreshToken, userId };
+}
+
+async function refreshProxy(refreshToken: string): Promise<Record<string, unknown>> {
+  const config: BiotConfig = { baseUrl: getBaseUrl() };
+  const payload = await fetchBiot(config, "POST", "/ums/v2/users/token/refresh", {
+    body: { refreshToken },
+    expectedStatuses: [200, 201],
+  });
+  const accessToken = nestedGet(payload, ["accessJwt", "token"]) as string | null;
+  const newRefreshToken = nestedGet(payload, ["refreshJwt", "token"]) as string | null;
+  if (!accessToken) throw new Error("Token refresh did not return a new access token.");
+  return { accessToken, refreshToken: newRefreshToken ?? refreshToken };
 }
 
 // ---------------------------------------------------------------------------
 // Dashboard builder
 // ---------------------------------------------------------------------------
 
-async function buildDashboard(params: Record<string, string>): Promise<Record<string, unknown>> {
-  const config = getConfig();
+async function buildDashboard(params: Record<string, string>, accessToken: string): Promise<Record<string, unknown>> {
+  const config: BiotConfig = { baseUrl: getBaseUrl() };
   const dateRange = resolveDateRange(params);
 
-  const loginPayload = await loginToBiot(config);
-  const accessToken = nestedGet(loginPayload, ["accessJwt", "token"]) as string | null;
-  if (!accessToken) throw new Error("BIOT login succeeded but did not return accessJwt.token.");
-
+  // User supplies their own accessToken — no server-side login needed
   const selfPayload = await getCurrentUser(config, accessToken);
-  const viewer = buildViewerIdentity(loginPayload, selfPayload);
+  const viewer = buildViewerIdentity({}, selfPayload);
   const rawDevices = await getDevices(config, accessToken);
   const organizations = deriveOrganizations(viewer, selfPayload, rawDevices);
   const scope = resolveScope(viewer, organizations, params.organizationId);
@@ -203,13 +276,6 @@ async function buildDashboard(params: Record<string, string>): Promise<Record<st
 // ---------------------------------------------------------------------------
 // BIOT API calls
 // ---------------------------------------------------------------------------
-
-async function loginToBiot(config: BiotConfig): Promise<Record<string, unknown>> {
-  return fetchBiot(config, "POST", "/ums/v2/users/login", {
-    body: { username: config.username, password: config.password },
-    expectedStatuses: [200, 201],
-  });
-}
 
 async function getCurrentUser(config: BiotConfig, accessToken: string): Promise<Record<string, unknown>> {
   return fetchBiot(config, "GET", "/ums/v2/users/self", { accessToken });
@@ -422,7 +488,7 @@ function buildViewerIdentity(loginPayload: Record<string, unknown>, selfPayload:
   ]) as string | null;
   return {
     userId: firstNonEmpty([loginPayload.userId, selfPayload._id, selfPayload.id]) as string | null,
-    displayName: displayName ?? "BIOT Service Account",
+    displayName: displayName ?? "BIOT User",
     email: firstNonEmpty([selfPayload.email, selfPayload.username]) as string | null,
     role,
     groups,
@@ -516,7 +582,7 @@ function resolveScope(
     return { selectedOrganizationId: locked ?? "", organizationIds: locked ? [locked] : [], label: orgLabel(organizations, locked) };
   }
   const selected = typeof requestedOrgId === "string" && requestedOrgId.trim() ? requestedOrgId.trim() : "all";
-  if (selected !== "all" && !available.includes(selected)) throw new Error("The requested organization is not available for this manufacturer account.");
+  if (selected !== "all" && !available.includes(selected)) throw new Error("The requested organization is not available for this account.");
   if (selected === "all") return { selectedOrganizationId: "all", organizationIds: available, label: "All organizations" };
   return { selectedOrganizationId: selected, organizationIds: [selected], label: orgLabel(organizations, selected) };
 }
@@ -567,6 +633,7 @@ async function fetchBiot(
   const text = await res.text();
   let payload: unknown;
   try { payload = JSON.parse(text); } catch { throw new Error("BIOT returned a non-JSON response."); }
+  if (res.status === 401) throw new BiotAuthError(extractErrorMessage(payload) || "BIOT authentication failed. Your session may have expired.");
   const expected = options.expectedStatuses ?? [200];
   if (!expected.includes(res.status)) throw new Error(extractErrorMessage(payload) || `BIOT request failed with status ${res.status}.`);
   return payload as Record<string, unknown>;

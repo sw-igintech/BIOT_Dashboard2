@@ -12,16 +12,44 @@
     };
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="./dashboard.css?v=20260415-1" />
-  <script src="./dashboard.js?v=20260415-1" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260415-2" />
+  <script src="./dashboard.js?v=20260415-2" defer></script>
 </head>
 <body>
-  <div class="app-shell product-shell">
+
+  <!-- Login view — shown when not authenticated -->
+  <div id="loginView" class="login-overlay hidden">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="eyebrow">BIOT</div>
+        <h1>Devices Dashboard</h1>
+      </div>
+      <form id="loginForm" class="login-form" novalidate>
+        <div id="loginError" class="inline-error hidden"></div>
+        <label class="field">
+          <span>Email</span>
+          <input id="loginEmail" type="email" autocomplete="email" autofocus placeholder="your@email.com" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </label>
+        <button id="loginBtn" class="primary-button login-submit" type="submit">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard view — shown when authenticated -->
+  <div id="dashboardView" class="app-shell product-shell hidden">
     <main class="main product-main">
       <header class="dashboard-head">
         <div class="dashboard-heading">
           <div class="eyebrow">BIOT</div>
           <h1>Devices Dashboard</h1>
+        </div>
+        <div class="header-actions">
+          <span id="userInfo" class="user-info"></span>
+          <button id="logoutBtn" class="ghost-button" type="button">Sign Out</button>
         </div>
       </header>
 
@@ -152,5 +180,6 @@
       </section>
     </main>
   </div>
+
 </body>
 </html>

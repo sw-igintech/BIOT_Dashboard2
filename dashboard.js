@@ -47,6 +47,50 @@ const state = {
   summary: null,
 };
 
+// ---------------------------------------------------------------------------
+// Auth module
+// ---------------------------------------------------------------------------
+
+const AUTH_KEYS = {
+  token: "auth_token",
+  refreshToken: "auth_refresh_token",
+  user: "auth_user",
+};
+
+const auth = {
+  getToken() {
+    return localStorage.getItem(AUTH_KEYS.token);
+  },
+  getRefreshToken() {
+    return localStorage.getItem(AUTH_KEYS.refreshToken);
+  },
+  getUser() {
+    try {
+      const raw = localStorage.getItem(AUTH_KEYS.user);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  setTokens(accessToken, refreshToken, user) {
+    if (accessToken) localStorage.setItem(AUTH_KEYS.token, accessToken);
+    if (refreshToken) localStorage.setItem(AUTH_KEYS.refreshToken, refreshToken);
+    if (user) localStorage.setItem(AUTH_KEYS.user, JSON.stringify(user));
+  },
+  clearTokens() {
+    localStorage.removeItem(AUTH_KEYS.token);
+    localStorage.removeItem(AUTH_KEYS.refreshToken);
+    localStorage.removeItem(AUTH_KEYS.user);
+  },
+  isAuthenticated() {
+    return !!this.getToken();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Chart plugin
+// ---------------------------------------------------------------------------
+
 const centerTextPlugin = {
   id: "centerText",
   afterDraw(chart, args, pluginOptions) {
@@ -76,22 +120,130 @@ if (window.Chart) {
   window.Chart.register(centerTextPlugin);
 }
 
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+
 document.addEventListener("DOMContentLoaded", () => {
   setDefaultDates();
   wireUi();
-  refreshDashboard();
+
+  if (auth.isAuthenticated()) {
+    showDashboardView();
+    refreshDashboard();
+  } else {
+    showLoginView();
+  }
 });
 
 function wireUi() {
   document.getElementById("refreshBtn").addEventListener("click", () => refreshDashboard());
   document.getElementById("organizationSelect").addEventListener("change", () => refreshDashboard());
+  document.getElementById("loginForm").addEventListener("submit", handleLoginFormSubmit);
+  document.getElementById("logoutBtn").addEventListener("click", handleLogout);
 }
+
+// ---------------------------------------------------------------------------
+// Auth view helpers
+// ---------------------------------------------------------------------------
+
+function showLoginView() {
+  document.getElementById("loginView").classList.remove("hidden");
+  document.getElementById("dashboardView").classList.add("hidden");
+}
+
+function showDashboardView() {
+  document.getElementById("loginView").classList.add("hidden");
+  document.getElementById("dashboardView").classList.remove("hidden");
+  updateUserDisplay();
+}
+
+function updateUserDisplay() {
+  const user = auth.getUser();
+  const el = document.getElementById("userInfo");
+  if (el && user && user.email) {
+    el.textContent = user.email;
+  }
+}
+
+function handleAuthFailure() {
+  auth.clearTokens();
+  destroyCharts();
+  state.summary = null;
+  showLoginView();
+}
+
+// ---------------------------------------------------------------------------
+// Login form
+// ---------------------------------------------------------------------------
+
+async function handleLoginFormSubmit(event) {
+  event.preventDefault();
+
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+
+  if (!email || !password) {
+    showLoginError("Please enter your email and password.");
+    return;
+  }
+
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true;
+  btn.textContent = "Signing in...";
+  hideLoginError();
+
+  try {
+    const data = await loginRequest(email, password);
+    auth.setTokens(data.accessToken, data.refreshToken, { email, userId: data.userId });
+    showDashboardView();
+    refreshDashboard();
+  } catch (error) {
+    showLoginError(error && error.message ? error.message : "Login failed. Please check your credentials.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Sign In";
+  }
+}
+
+function handleLogout() {
+  auth.clearTokens();
+  destroyCharts();
+  state.summary = null;
+
+  // Clear any stale error state
+  hideDashboardError();
+  setDashboardLoading(false);
+
+  showLoginView();
+}
+
+function showLoginError(message) {
+  const el = document.getElementById("loginError");
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function hideLoginError() {
+  const el = document.getElementById("loginError");
+  el.textContent = "";
+  el.classList.add("hidden");
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard refresh
+// ---------------------------------------------------------------------------
 
 async function refreshDashboard() {
   const appsScriptUrl = getEdgeUrl();
   if (!appsScriptUrl) {
     destroyCharts();
     showDashboardError("Dashboard service is not configured.");
+    return;
+  }
+
+  if (!auth.isAuthenticated()) {
+    showLoginView();
     return;
   }
 
@@ -318,6 +470,10 @@ function toSafeNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
 }
+
+// ---------------------------------------------------------------------------
+// Render helpers
+// ---------------------------------------------------------------------------
 
 function renderMetrics(containerId, items) {
   const container = document.getElementById(containerId);
@@ -550,14 +706,95 @@ function destroyCharts() {
   state.charts = {};
 }
 
+// ---------------------------------------------------------------------------
+// HTTP: dashboard request (GET with x-biot-token + 401 refresh retry)
+// ---------------------------------------------------------------------------
+
 async function appsScriptRequest(params) {
-  const edgeUrl = getEdgeUrl();
-  if (!edgeUrl) {
-    throw new Error("Dashboard service is not configured.");
+  if (!auth.isAuthenticated()) {
+    handleAuthFailure();
+    throw new Error("Not authenticated. Please log in.");
   }
 
-  const query = new URLSearchParams({ _: String(Date.now()) });
-  appendQueryParams(query, params);
+  const edgeUrl = getEdgeUrl();
+  if (!edgeUrl) throw new Error("Dashboard service is not configured.");
+
+  let accessToken = auth.getToken();
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const query = new URLSearchParams({ _: String(Date.now()) });
+    appendQueryParams(query, params);
+
+    const headers = {
+      "Content-Type": "application/json",
+      "x-biot-token": accessToken,
+    };
+    const anonKey = getAnonKey();
+    if (anonKey) {
+      headers["apikey"] = anonKey;
+      headers["Authorization"] = `Bearer ${anonKey}`;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await fetch(`${edgeUrl}?${query.toString()}`, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      window.clearTimeout(timeoutId);
+      if (error.name === "AbortError") {
+        throw buildTransportError(GENERIC_REQUEST_ERROR, "fetch");
+      }
+      throw error;
+    }
+    window.clearTimeout(timeoutId);
+
+    // On first 401, attempt a token refresh and retry
+    if (response.status === 401 && attempt === 0) {
+      const newToken = await performTokenRefresh();
+      if (!newToken) {
+        handleAuthFailure();
+        throw new Error("Your session has expired. Please log in again.");
+      }
+      accessToken = newToken;
+      continue;
+    }
+
+    // Parse response
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw buildResponseError("Received an invalid response from the server.", "fetch");
+    }
+
+    if (response.status === 401) {
+      handleAuthFailure();
+      throw new Error("Your session has expired. Please log in again.");
+    }
+
+    if (!payload || payload.ok === false) {
+      throw buildResponseError(resolveErrorMessage(payload), "fetch");
+    }
+
+    return payload.data;
+  }
+
+  throw new Error(GENERIC_REQUEST_ERROR);
+}
+
+// ---------------------------------------------------------------------------
+// HTTP: login and token refresh (POST)
+// ---------------------------------------------------------------------------
+
+async function loginRequest(username, password) {
+  const edgeUrl = getEdgeUrl();
+  if (!edgeUrl) throw new Error("Dashboard service is not configured.");
 
   const headers = { "Content-Type": "application/json" };
   const anonKey = getAnonKey();
@@ -567,31 +804,75 @@ async function appsScriptRequest(params) {
   }
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch(`${edgeUrl}?${query.toString()}`, {
-      method: "GET",
+    const response = await fetch(edgeUrl, {
+      method: "POST",
       headers,
+      body: JSON.stringify({ action: "login", username, password }),
       signal: controller.signal,
     });
 
     const payload = await response.json();
 
     if (!payload || payload.ok === false) {
-      throw buildResponseError(resolveErrorMessage(payload), "fetch");
+      throw new Error(resolveErrorMessage(payload) || "Login failed. Please check your credentials.");
     }
 
-    return payload.data;
+    return payload.data; // { accessToken, refreshToken, userId }
   } catch (error) {
     if (error.name === "AbortError") {
-      throw buildTransportError(GENERIC_REQUEST_ERROR, "fetch");
+      throw new Error("Login request timed out. Please try again.");
     }
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }
 }
+
+async function refreshTokenRequest(refreshToken) {
+  const edgeUrl = getEdgeUrl();
+  if (!edgeUrl) throw new Error("Dashboard service is not configured.");
+
+  const headers = { "Content-Type": "application/json" };
+  const anonKey = getAnonKey();
+  if (anonKey) {
+    headers["apikey"] = anonKey;
+    headers["Authorization"] = `Bearer ${anonKey}`;
+  }
+
+  const response = await fetch(edgeUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "refresh", refreshToken }),
+  });
+
+  const payload = await response.json();
+
+  if (!payload || payload.ok === false) {
+    throw new Error(resolveErrorMessage(payload) || "Token refresh failed.");
+  }
+
+  return payload.data; // { accessToken, refreshToken }
+}
+
+async function performTokenRefresh() {
+  const refreshToken = auth.getRefreshToken();
+  if (!refreshToken) return null;
+
+  try {
+    const data = await refreshTokenRequest(refreshToken);
+    auth.setTokens(data.accessToken, data.refreshToken);
+    return data.accessToken;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP utilities
+// ---------------------------------------------------------------------------
 
 function appendQueryParams(query, params) {
   Object.entries(params).forEach(([key, value]) => {
@@ -628,6 +909,51 @@ function resolveErrorMessage(payload) {
   return "Unable to load dashboard data right now.";
 }
 
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+function getEdgeUrl() {
+  return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseEdgeUrl === "string"
+    ? window.DASHBOARD_CONFIG.supabaseEdgeUrl.trim()
+    : "";
+}
+
+function getAnonKey() {
+  return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseAnonKey === "string"
+    ? window.DASHBOARD_CONFIG.supabaseAnonKey.trim()
+    : "";
+}
+
+// ---------------------------------------------------------------------------
+// UI state helpers
+// ---------------------------------------------------------------------------
+
+function setDashboardLoading(isLoading) {
+  const loading = document.getElementById("dashboardLoading");
+  const refreshButton = document.getElementById("refreshBtn");
+
+  loading.classList.toggle("hidden", !isLoading);
+  refreshButton.disabled = isLoading;
+  refreshButton.textContent = isLoading ? "Refreshing..." : "Refresh";
+}
+
+function showDashboardError(message) {
+  const element = document.getElementById("dashboardError");
+  element.textContent = message;
+  element.classList.remove("hidden");
+}
+
+function hideDashboardError() {
+  const element = document.getElementById("dashboardError");
+  element.textContent = "";
+  element.classList.add("hidden");
+}
+
+// ---------------------------------------------------------------------------
+// Date helpers
+// ---------------------------------------------------------------------------
+
 function setDefaultDates() {
   const toDate = new Date();
   const fromDate = new Date(toDate);
@@ -659,39 +985,6 @@ function buildDateRangePayload() {
     toIso,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   };
-}
-
-function getEdgeUrl() {
-  return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseEdgeUrl === "string"
-    ? window.DASHBOARD_CONFIG.supabaseEdgeUrl.trim()
-    : "";
-}
-
-function getAnonKey() {
-  return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseAnonKey === "string"
-    ? window.DASHBOARD_CONFIG.supabaseAnonKey.trim()
-    : "";
-}
-
-function setDashboardLoading(isLoading) {
-  const loading = document.getElementById("dashboardLoading");
-  const refreshButton = document.getElementById("refreshBtn");
-
-  loading.classList.toggle("hidden", !isLoading);
-  refreshButton.disabled = isLoading;
-  refreshButton.textContent = isLoading ? "Refreshing..." : "Refresh";
-}
-
-function showDashboardError(message) {
-  const element = document.getElementById("dashboardError");
-  element.textContent = message;
-  element.classList.remove("hidden");
-}
-
-function hideDashboardError() {
-  const element = document.getElementById("dashboardError");
-  element.textContent = "";
-  element.classList.add("hidden");
 }
 
 function formatDateInput(value) {

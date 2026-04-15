@@ -158,8 +158,14 @@ async function buildDashboard(params: Record<string, string>): Promise<Record<st
   const organizations = deriveOrganizations(viewer, selfPayload, rawDevices);
   const scope = resolveScope(viewer, organizations, params.organizationId);
 
+  // When a manufacturer views all organizations, trust the API response
+  // entirely — the BIOT API already scopes results to the authenticated
+  // user's visibility. Client-side filtering in this case can silently drop
+  // devices whose ownerOrganization wasn't captured by deriveOrganizations.
+  // Only apply client-side scope filtering when a specific org is selected.
+  const needsClientFilter = scope.selectedOrganizationId !== "all";
   const scopedDevices: NormalizedDevice[] = rawDevices
-    .filter((d) => deviceMatchesScope(d, scope.organizationIds, viewer))
+    .filter((d) => !needsClientFilter || deviceMatchesScope(d, scope.organizationIds, viewer))
     .map(normalizeDevice);
 
   const widgetErrors: Record<string, string> = {};
@@ -214,14 +220,7 @@ async function getDevices(config: BiotConfig, accessToken: string): Promise<unkn
   let page = 0;
 
   while (true) {
-    // "__validTo" IS NULL mirrors the Grafana SQL filter that the real BIOT
-    // dashboard uses — it selects only the current/active version of each
-    // device record, excluding historical (superseded) rows.
-    const searchRequest = {
-      filter: { "__validTo": { eq: null } },
-      limit: 100,
-      page,
-    };
+    const searchRequest = { limit: 100, page };
     const payload = await fetchBiot(config, "GET", "/device/v2/devices", {
       accessToken,
       query: { searchRequest: JSON.stringify(searchRequest) },

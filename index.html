@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>BIOT Devices Dashboard</title>
+  <title>IGIN SMART - IOT</title>
   <script>
     window.DASHBOARD_CONFIG = {
       supabaseEdgeUrl: "https://qjkrkqyycujmjxbfthev.supabase.co/functions/v1/biot-dashboard",
@@ -12,8 +12,8 @@
     };
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="./dashboard.css?v=20260415-2" />
-  <script src="./dashboard.js?v=20260415-2" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260427-1" />
+  <script src="./dashboard.js?v=20260427-1" defer></script>
 </head>
 <body>
 
@@ -21,8 +21,14 @@
   <div id="loginView" class="login-overlay hidden">
     <div class="login-card">
       <div class="login-logo">
-        <div class="eyebrow">BIOT</div>
-        <h1>Devices Dashboard</h1>
+        <!--
+          LOGO — to replace: swap the src below with your logo file path.
+          File: logo.svg (project root)
+          Recommended: SVG or PNG, ideally square, 48–64 px display size.
+        -->
+        <img src="./logo.svg" alt="IGIN SMART" class="brand-logo" />
+        <div class="eyebrow">IGIN SMART</div>
+        <h1>IOT</h1>
       </div>
       <form id="loginForm" class="login-form" novalidate>
         <div id="loginError" class="inline-error hidden"></div>
@@ -30,10 +36,13 @@
           <span>Email</span>
           <input id="loginEmail" type="email" autocomplete="email" autofocus placeholder="your@email.com" />
         </label>
-        <label class="field">
+        <div class="field">
           <span>Password</span>
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
-        </label>
+          <div class="password-wrap">
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+            <button type="button" id="togglePassword" class="toggle-password-btn">Show</button>
+          </div>
+        </div>
         <button id="loginBtn" class="primary-button login-submit" type="submit">Sign In</button>
       </form>
     </div>
@@ -43,9 +52,16 @@
   <div id="dashboardView" class="app-shell product-shell hidden">
     <main class="main product-main">
       <header class="dashboard-head">
-        <div class="dashboard-heading">
-          <div class="eyebrow">BIOT</div>
-          <h1>Devices Dashboard</h1>
+        <div class="brand-bar">
+          <!--
+            LOGO — to replace: swap the src below with your logo file path.
+            File: logo.svg (project root)
+          -->
+          <img src="./logo.svg" alt="IGIN SMART" class="brand-logo-sm" />
+          <div class="dashboard-heading">
+            <div class="eyebrow">IGIN SMART</div>
+            <h1>IOT</h1>
+          </div>
         </div>
         <div class="header-actions">
           <span id="userInfo" class="user-info"></span>
@@ -55,15 +71,21 @@
 
       <section class="filter-card compact-filters">
         <div class="filter-grid product-filter-grid">
-          <label class="field">
+          <div class="field">
             <span>From</span>
-            <input id="fromDate" type="date" />
-          </label>
+            <div class="datetime-row">
+              <input id="fromDate" type="text" inputmode="numeric" placeholder="dd/mm/yy" maxlength="8" class="date-input" autocomplete="off" />
+              <input id="fromTime" type="time" value="00:00" class="time-input" />
+            </div>
+          </div>
 
-          <label class="field">
+          <div class="field">
             <span>To</span>
-            <input id="toDate" type="date" />
-          </label>
+            <div class="datetime-row">
+              <input id="toDate" type="text" inputmode="numeric" placeholder="dd/mm/yy" maxlength="8" class="date-input" autocomplete="off" />
+              <input id="toTime" type="time" value="23:59" class="time-input" />
+            </div>
+          </div>
 
           <label id="organizationField" class="field hidden">
             <span>Organization</span>

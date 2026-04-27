@@ -18,6 +18,7 @@ const CHART_COLORS = {
   },
 };
 
+// Full breakdown arrays used for data processing (includes unknown)
 const CONNECTION_BREAKDOWN = [
   ["connected", "Connected"],
   ["disconnected", "Disconnected"],
@@ -41,6 +42,14 @@ const SANITIZER_BREAKDOWN = [
 const GENERIC_REQUEST_ERROR = "Unable to load dashboard data right now. Please try again.";
 const REQUEST_TIMEOUT_MS = 90000;
 
+// ---------------------------------------------------------------------------
+// Session timeout policy
+// ---------------------------------------------------------------------------
+// 12-hour absolute session. The clock starts at login and is not reset by
+// token refreshes. After 12 hours the user must log in again regardless of
+// activity. This matches common internal-dashboard practice (one workday).
+const SESSION_MAX_MS = 12 * 60 * 60 * 1000;
+
 const state = {
   charts: {},
   requestId: 0,
@@ -55,6 +64,7 @@ const AUTH_KEYS = {
   token: "auth_token",
   refreshToken: "auth_refresh_token",
   user: "auth_user",
+  sessionStart: "auth_session_start",
 };
 
 const auth = {
@@ -75,15 +85,26 @@ const auth = {
   setTokens(accessToken, refreshToken, user) {
     if (accessToken) localStorage.setItem(AUTH_KEYS.token, accessToken);
     if (refreshToken) localStorage.setItem(AUTH_KEYS.refreshToken, refreshToken);
-    if (user) localStorage.setItem(AUTH_KEYS.user, JSON.stringify(user));
+    // user is only provided on initial login — set the session clock then
+    if (user) {
+      localStorage.setItem(AUTH_KEYS.user, JSON.stringify(user));
+      localStorage.setItem(AUTH_KEYS.sessionStart, String(Date.now()));
+    }
   },
   clearTokens() {
     localStorage.removeItem(AUTH_KEYS.token);
     localStorage.removeItem(AUTH_KEYS.refreshToken);
     localStorage.removeItem(AUTH_KEYS.user);
+    localStorage.removeItem(AUTH_KEYS.sessionStart);
+  },
+  isSessionExpired() {
+    const start = parseInt(localStorage.getItem(AUTH_KEYS.sessionStart) || "0", 10);
+    // If no session start recorded (pre-timeout-feature login), treat as expired
+    if (!start) return true;
+    return Date.now() - start > SESSION_MAX_MS;
   },
   isAuthenticated() {
-    return !!this.getToken();
+    return !!this.getToken() && !this.isSessionExpired();
   },
 };
 
@@ -132,6 +153,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showDashboardView();
     refreshDashboard();
   } else {
+    // Clean up any expired/stale tokens silently
+    if (auth.getToken()) auth.clearTokens();
     showLoginView();
   }
 });
@@ -141,6 +164,30 @@ function wireUi() {
   document.getElementById("organizationSelect").addEventListener("change", () => refreshDashboard());
   document.getElementById("loginForm").addEventListener("submit", handleLoginFormSubmit);
   document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+
+  // Show/Hide password toggle
+  document.getElementById("togglePassword").addEventListener("click", () => {
+    const input = document.getElementById("loginPassword");
+    const btn = document.getElementById("togglePassword");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    btn.textContent = showing ? "Show" : "Hide";
+  });
+
+  // Auto-format date inputs as user types (dd/mm/yy)
+  ["fromDate", "toDate"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", (e) => {
+      let digits = e.target.value.replace(/\D/g, "");
+      if (digits.length > 6) digits = digits.slice(0, 6);
+      let formatted = digits;
+      if (digits.length > 4) {
+        formatted = digits.slice(0, 2) + "/" + digits.slice(2, 4) + "/" + digits.slice(4);
+      } else if (digits.length > 2) {
+        formatted = digits.slice(0, 2) + "/" + digits.slice(2);
+      }
+      e.target.value = formatted;
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +242,7 @@ async function handleLoginFormSubmit(event) {
 
   try {
     const data = await loginRequest(email, password);
+    // Pass user object so session clock is started
     auth.setTokens(data.accessToken, data.refreshToken, { email, userId: data.userId });
     showDashboardView();
     refreshDashboard();
@@ -210,11 +258,8 @@ function handleLogout() {
   auth.clearTokens();
   destroyCharts();
   state.summary = null;
-
-  // Clear any stale error state
   hideDashboardError();
   setDashboardLoading(false);
-
   showLoginView();
 }
 
@@ -235,14 +280,16 @@ function hideLoginError() {
 // ---------------------------------------------------------------------------
 
 async function refreshDashboard() {
-  const appsScriptUrl = getEdgeUrl();
-  if (!appsScriptUrl) {
+  const edgeUrl = getEdgeUrl();
+  if (!edgeUrl) {
     destroyCharts();
     showDashboardError("Dashboard service is not configured.");
     return;
   }
 
+  // Check session expiry before every refresh
   if (!auth.isAuthenticated()) {
+    if (auth.getToken()) auth.clearTokens(); // tidy up expired session
     showLoginView();
     return;
   }
@@ -274,24 +321,17 @@ async function refreshDashboard() {
 
   try {
     const summary = normalizeDashboardSummary(await appsScriptRequest(params));
-    if (requestId !== state.requestId) {
-      return;
-    }
+    if (requestId !== state.requestId) return;
 
     state.summary = summary;
     renderOrganizationSelector(summary);
     renderSummary(summary);
   } catch (error) {
-    if (requestId !== state.requestId) {
-      return;
-    }
-
+    if (requestId !== state.requestId) return;
     destroyCharts();
     showDashboardError(error && error.message ? error.message : GENERIC_REQUEST_ERROR);
   } finally {
-    if (requestId === state.requestId) {
-      setDashboardLoading(false);
-    }
+    if (requestId === state.requestId) setDashboardLoading(false);
   }
 }
 
@@ -326,22 +366,25 @@ function renderOrganizationSelector(summary) {
 }
 
 function renderSummary(summary) {
+  // Connection: hide Unknown in metrics and chart/legend
+  const connDisplayBreakdown = summary.connection.breakdown.filter((b) => b.key !== "unknown");
   renderMetrics("connectionMetrics", [
     { label: "Total Devices", value: summary.connection.total },
     { label: "Connected", value: summary.connection.counts.connected },
     { label: "Disconnected", value: summary.connection.counts.disconnected },
-    { label: "Unknown", value: summary.connection.counts.unknown },
   ]);
 
+  // Gloves: hide Unknown in metrics and chart/legend
+  const gloveDisplayBreakdown = summary.gloves.breakdown.filter((b) => b.key !== "unknown");
   renderMetrics("gloveMetrics", [
     { label: "Total Events", value: summary.gloves.total },
     { label: "Small", value: summary.gloves.counts.small },
     { label: "Medium", value: summary.gloves.counts.medium },
     { label: "Large", value: summary.gloves.counts.large },
     { label: "Extra Large", value: summary.gloves.counts.extraLarge },
-    { label: "Unknown", value: summary.gloves.counts.unknown },
   ]);
 
+  // Sanitizer: keep Unknown fully visible
   renderMetrics("sanitizerMetrics", [
     { label: "Devices", value: summary.sanitizer.total },
     { label: "Available", value: summary.sanitizer.counts.available },
@@ -349,12 +392,13 @@ function renderSummary(summary) {
     { label: "Unknown", value: summary.sanitizer.counts.unknown },
   ]);
 
-  renderLegend("connectionLegend", summary.connection.breakdown, CHART_COLORS.connection);
-  renderLegend("gloveLegend", summary.gloves.breakdown, CHART_COLORS.gloves);
+  renderLegend("connectionLegend", connDisplayBreakdown, CHART_COLORS.connection);
+  renderLegend("gloveLegend", gloveDisplayBreakdown, CHART_COLORS.gloves);
   renderLegend("sanitizerLegend", summary.sanitizer.breakdown, CHART_COLORS.sanitizer);
 
-  upsertChart("connectionChart", "connection", summary.connection.breakdown, summary.connection.total, "Devices");
-  upsertChart("gloveChart", "gloves", summary.gloves.breakdown, summary.gloves.total, "Events");
+  // Center totals still show the true full count (including unknown devices)
+  upsertChart("connectionChart", "connection", connDisplayBreakdown, summary.connection.total, "Devices");
+  upsertChart("gloveChart", "gloves", gloveDisplayBreakdown, summary.gloves.total, "Events");
   upsertChart("sanitizerChart", "sanitizer", summary.sanitizer.breakdown, summary.sanitizer.total, "Devices");
 
   renderOfflineTable(summary.offlineDevices);
@@ -369,7 +413,7 @@ function normalizeDashboardSummary(summary) {
       ? source.scope
       : { organizationId: "all", organizationIds: [], organizationLabel: "All organizations" },
     organizations: Array.isArray(source.organizations)
-      ? source.organizations.filter((organization) => organization && typeof organization === "object")
+      ? source.organizations.filter((o) => o && typeof o === "object")
       : [],
     connection: normalizeChartSection(source.connection, CONNECTION_BREAKDOWN),
     offlineDevices: normalizeOfflineDevices(source.offlineDevices),
@@ -393,43 +437,25 @@ function normalizeChartSection(section, labels) {
     ? labels.map(([key, label]) => normalizeBreakdownItem(source.breakdown, key, label, counts[key], total))
     : buildBreakdownFromCounts(counts, labels, total);
 
-  return {
-    total,
-    counts,
-    breakdown,
-  };
+  return { total, counts, breakdown };
 }
 
 function normalizeBreakdownItem(items, key, label, fallbackValue, total) {
-  const match = Array.isArray(items)
-    ? items.find((item) => item && item.key === key) || {}
-    : {};
+  const match = Array.isArray(items) ? items.find((item) => item && item.key === key) || {} : {};
   const value = Number.isFinite(Number(match.value)) ? Number(match.value) : fallbackValue;
   const percentage = Number.isFinite(Number(match.percentage))
     ? Number(match.percentage)
     : total ? Number(((value / total) * 100).toFixed(1)) : 0;
-
-  return {
-    key,
-    label,
-    value,
-    percentage,
-  };
+  return { key, label, value, percentage };
 }
 
 function buildBreakdownFromCounts(counts, labels, totalValue) {
   const total = Number.isFinite(Number(totalValue))
     ? Number(totalValue)
     : labels.reduce((sum, [key]) => sum + toSafeNumber(counts[key]), 0);
-
   return labels.map(([key, label]) => {
     const value = toSafeNumber(counts[key]);
-    return {
-      key,
-      label,
-      value,
-      percentage: total ? Number(((value / total) * 100).toFixed(1)) : 0,
-    };
+    return { key, label, value, percentage: total ? Number(((value / total) * 100).toFixed(1)) : 0 };
   });
 }
 
@@ -443,7 +469,6 @@ function normalizeOfflineDevices(section) {
         connectionStatus: device && device.connectionStatus ? String(device.connectionStatus) : "Unknown",
       }))
     : [];
-
   return {
     total: Number.isFinite(Number(source.total)) ? Number(source.total) : items.length,
     items,
@@ -453,7 +478,6 @@ function normalizeOfflineDevices(section) {
 function normalizeSanitizerSection(section) {
   const normalized = normalizeChartSection(section, SANITIZER_BREAKDOWN);
   const source = section && typeof section === "object" ? section : {};
-
   normalized.devices = Array.isArray(source.devices)
     ? source.devices.map((device) => ({
         id: device && device.id ? String(device.id) : "Unknown device",
@@ -462,7 +486,6 @@ function normalizeSanitizerSection(section) {
         value: device ? device.value : null,
       }))
     : [];
-
   return normalized;
 }
 
@@ -538,9 +561,7 @@ function renderLegend(containerId, breakdown, palette) {
 }
 
 function upsertChart(canvasId, paletteKey, breakdown, total, label) {
-  if (!window.Chart) {
-    return;
-  }
+  if (!window.Chart) return;
 
   const canvas = document.getElementById(canvasId);
   const palette = CHART_COLORS[paletteKey];
@@ -553,15 +574,13 @@ function upsertChart(canvasId, paletteKey, breakdown, total, label) {
       type: "doughnut",
       data: {
         labels,
-        datasets: [
-          {
-            data: values,
-            backgroundColor: colors,
-            borderColor: "#ffffff",
-            borderWidth: 4,
-            hoverOffset: 6,
-          },
-        ],
+        datasets: [{
+          data: values,
+          backgroundColor: colors,
+          borderColor: "#ffffff",
+          borderWidth: 4,
+          hoverOffset: 6,
+        }],
       },
       options: {
         responsive: true,
@@ -579,10 +598,7 @@ function upsertChart(canvasId, paletteKey, breakdown, total, label) {
               },
             },
           },
-          centerText: {
-            value: formatNumber(total),
-            label,
-          },
+          centerText: { value: formatNumber(total), label },
         },
       },
     });
@@ -611,7 +627,6 @@ function renderOfflineTable(offlineDevices) {
   }
 
   empty.classList.add("hidden");
-
   offlineDevices.items.forEach((device) => {
     const row = document.createElement("tr");
     row.appendChild(buildTextCell(device.id, "device-id"));
@@ -634,20 +649,16 @@ function renderSanitizerTable(sanitizer) {
   }
 
   empty.classList.add("hidden");
-
   sanitizer.devices.forEach((device) => {
     const row = document.createElement("tr");
-
     const idCell = buildTextCell(device.id, "device-id");
     const statusCell = document.createElement("td");
     const statusBadge = buildStatusBadge(device.status);
     const rawValue = document.createElement("div");
     rawValue.className = "muted-copy";
     rawValue.textContent = `Value: ${formatRawValue(device.value)}`;
-
     statusCell.appendChild(statusBadge);
     statusCell.appendChild(rawValue);
-
     row.appendChild(idCell);
     row.appendChild(statusCell);
     body.appendChild(row);
@@ -657,9 +668,7 @@ function renderSanitizerTable(sanitizer) {
 function buildTextCell(value, className = "") {
   const cell = document.createElement("td");
   cell.textContent = value;
-  if (className) {
-    cell.classList.add(className);
-  }
+  if (className) cell.classList.add(className);
   return cell;
 }
 
@@ -672,13 +681,10 @@ function buildStatusCell(label) {
 function buildStatusBadge(label) {
   const badge = document.createElement("span");
   badge.className = `status-badge ${statusClassName(label)}`;
-
   const dot = document.createElement("span");
   dot.className = "status-dot";
-
   const text = document.createElement("span");
   text.textContent = label;
-
   badge.appendChild(dot);
   badge.appendChild(text);
   return badge;
@@ -686,18 +692,10 @@ function buildStatusBadge(label) {
 
 function statusClassName(label) {
   const normalized = String(label || "").toLowerCase();
-  if (normalized === "connected") {
-    return "status-connected";
-  }
-  if (normalized === "disconnected") {
-    return "status-disconnected";
-  }
-  if (normalized === "available") {
-    return "status-available";
-  }
-  if (normalized === "unavailable") {
-    return "status-unavailable";
-  }
+  if (normalized === "connected") return "status-connected";
+  if (normalized === "disconnected") return "status-disconnected";
+  if (normalized === "available") return "status-available";
+  if (normalized === "unavailable") return "status-unavailable";
   return "status-unknown";
 }
 
@@ -747,9 +745,7 @@ async function appsScriptRequest(params) {
       });
     } catch (error) {
       window.clearTimeout(timeoutId);
-      if (error.name === "AbortError") {
-        throw buildTransportError(GENERIC_REQUEST_ERROR, "fetch");
-      }
+      if (error.name === "AbortError") throw buildTransportError(GENERIC_REQUEST_ERROR, "fetch");
       throw error;
     }
     window.clearTimeout(timeoutId);
@@ -765,7 +761,6 @@ async function appsScriptRequest(params) {
       continue;
     }
 
-    // Parse response
     let payload;
     try {
       payload = await response.json();
@@ -822,9 +817,7 @@ async function loginRequest(username, password) {
 
     return payload.data; // { accessToken, refreshToken, userId }
   } catch (error) {
-    if (error.name === "AbortError") {
-      throw new Error("Login request timed out. Please try again.");
-    }
+    if (error.name === "AbortError") throw new Error("Login request timed out. Please try again.");
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
@@ -897,15 +890,9 @@ function buildResponseError(message, transport) {
 }
 
 function resolveErrorMessage(payload) {
-  if (!payload) {
-    return "Unable to load dashboard data right now.";
-  }
-  if (payload.error && typeof payload.error === "string") {
-    return payload.error;
-  }
-  if (payload.error && typeof payload.error.message === "string") {
-    return payload.error.message;
-  }
+  if (!payload) return "Unable to load dashboard data right now.";
+  if (payload.error && typeof payload.error === "string") return payload.error;
+  if (payload.error && typeof payload.error.message === "string") return payload.error.message;
   return "Unable to load dashboard data right now.";
 }
 
@@ -915,14 +902,12 @@ function resolveErrorMessage(payload) {
 
 function getEdgeUrl() {
   return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseEdgeUrl === "string"
-    ? window.DASHBOARD_CONFIG.supabaseEdgeUrl.trim()
-    : "";
+    ? window.DASHBOARD_CONFIG.supabaseEdgeUrl.trim() : "";
 }
 
 function getAnonKey() {
   return window.DASHBOARD_CONFIG && typeof window.DASHBOARD_CONFIG.supabaseAnonKey === "string"
-    ? window.DASHBOARD_CONFIG.supabaseAnonKey.trim()
-    : "";
+    ? window.DASHBOARD_CONFIG.supabaseAnonKey.trim() : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -932,7 +917,6 @@ function getAnonKey() {
 function setDashboardLoading(isLoading) {
   const loading = document.getElementById("dashboardLoading");
   const refreshButton = document.getElementById("refreshBtn");
-
   loading.classList.toggle("hidden", !isLoading);
   refreshButton.disabled = isLoading;
   refreshButton.textContent = isLoading ? "Refreshing..." : "Refresh";
@@ -951,31 +935,67 @@ function hideDashboardError() {
 }
 
 // ---------------------------------------------------------------------------
-// Date helpers
+// Date / time helpers
 // ---------------------------------------------------------------------------
+
+// Convert a Date object to dd/mm/yy display string
+function toDisplayDate(date) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear()).slice(2);
+  return `${day}/${month}/${year}`;
+}
+
+// Parse dd/mm/yy to YYYY-MM-DD; returns null on invalid input
+function parseDisplayDate(ddmmyy) {
+  const parts = ddmmyy.trim().split("/");
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = 2000 + parseInt(parts[2], 10);
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 
 function setDefaultDates() {
   const toDate = new Date();
   const fromDate = new Date(toDate);
   fromDate.setDate(fromDate.getDate() - 13);
 
-  document.getElementById("fromDate").value = formatDateInput(fromDate);
-  document.getElementById("toDate").value = formatDateInput(toDate);
+  document.getElementById("fromDate").value = toDisplayDate(fromDate);
+  document.getElementById("toDate").value = toDisplayDate(toDate);
+  // Time defaults are set via HTML value attributes (00:00 / 23:59)
 }
 
 function buildDateRangePayload() {
-  const from = document.getElementById("fromDate").value;
-  const to = document.getElementById("toDate").value;
+  const fromDisplay = document.getElementById("fromDate").value.trim();
+  const toDisplay = document.getElementById("toDate").value.trim();
+  const fromTime = document.getElementById("fromTime").value || "00:00";
+  const toTime = document.getElementById("toTime").value || "23:59";
 
-  if (!from || !to) {
+  if (!fromDisplay || !toDisplay) {
     return { ok: false, error: "Select both a start date and an end date." };
+  }
+
+  const from = parseDisplayDate(fromDisplay);
+  const to = parseDisplayDate(toDisplay);
+
+  if (!from) {
+    return { ok: false, error: `Invalid start date. Use dd/mm/yy format (e.g. ${toDisplayDate(new Date())}).` };
+  }
+  if (!to) {
+    return { ok: false, error: `Invalid end date. Use dd/mm/yy format (e.g. ${toDisplayDate(new Date())}).` };
   }
   if (from > to) {
     return { ok: false, error: "The start date must be on or before the end date." };
   }
 
-  const fromIso = new Date(`${from}T00:00:00`).toISOString();
-  const toIso = new Date(`${to}T23:59:59.999`).toISOString();
+  // Build full ISO timestamps including user-selected time.
+  // new Date("YYYY-MM-DDTHH:MM:ss") interprets as LOCAL time and converts
+  // to UTC via .toISOString(), which is the correct behavior for BIOT filtering.
+  const fromIso = new Date(`${from}T${fromTime}:00`).toISOString();
+  const toIso = new Date(`${to}T${toTime}:59.999`).toISOString();
 
   return {
     ok: true,
@@ -987,23 +1007,10 @@ function buildDateRangePayload() {
   };
 }
 
-function formatDateInput(value) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function formatDateTime(value) {
-  if (!value) {
-    return "Unknown";
-  }
-
+  if (!value) return "Unknown";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown";
-  }
-
+  if (Number.isNaN(date.getTime())) return "Unknown";
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
@@ -1019,11 +1026,7 @@ function formatNumber(value) {
 }
 
 function formatRawValue(value) {
-  if (value === null || value === undefined || value === "") {
-    return "null";
-  }
-  if (typeof value === "boolean") {
-    return value ? "true" : "false";
-  }
+  if (value === null || value === undefined || value === "") return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
   return String(value);
 }

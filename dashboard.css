@@ -635,6 +635,100 @@ tbody tr:last-child td
   line-height: 1.2;
 }
 
+/* ---------------------------------------------------------------------------
+   Brand logo
+--------------------------------------------------------------------------- */
+
+/* Large logo — login card */
+.brand-logo
+{
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 10px;
+}
+
+/* Small logo — dashboard header */
+.brand-logo-sm
+{
+  display: block;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 7px;
+}
+
+/* Wrapper that puts logo + heading side-by-side in the header */
+.brand-bar
+{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   Show/hide password toggle
+--------------------------------------------------------------------------- */
+
+.password-wrap
+{
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrap input
+{
+  flex: 1;
+  padding-right: 54px;
+}
+
+.toggle-password-btn
+{
+  position: absolute;
+  right: 8px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  transition: color 80ms ease, background-color 80ms ease;
+}
+
+.toggle-password-btn:hover
+{
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ---------------------------------------------------------------------------
+   Date + time filter row
+--------------------------------------------------------------------------- */
+
+.datetime-row
+{
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.datetime-row .date-input
+{
+  flex: 1 1 0;
+  min-width: 76px;
+}
+
+.datetime-row .time-input
+{
+  flex: 0 0 88px;
+  width: 88px;
+}
+
 .login-form
 {
   display: grid;

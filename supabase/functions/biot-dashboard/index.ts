@@ -83,14 +83,19 @@ interface NormalizedDevice {
   sanitizerStatus: string;
   sanitizerStatusKey: string;
   sanitizerValue: unknown;
+  // Delivery available — drives the Operational widget.
+  // Expected field: _status.delivery_available (boolean).
+  // Naming is snake_case consistent with confirmed _status.septol_availability1.
+  deliveryAvailable: boolean | null;
   // Full _status object — allows frontend to read device state fields
   // Confirmed fields: _connection._connected, _connection._lastConnectedTime, septol_availability1
   // Additional fields (based on socket simulator model, names not verified via REST API):
   //   septol (0-2), trash (0-1), cartridge (0-6), lidOpen (bool)
   rawStatus: Record<string, unknown>;
   // Non-system custom fields at device root level (field names depend on BIOT device template)
-  // Settings fields like sw_version, default_glove_size, nfc_required, etc.
-  // would appear here if the device template defines them.
+  // Confirmed template fields (from BIOT device template screenshots):
+  //   SoftwareVersion, GloveDefaultSize, UserIdentificationRequired,
+  //   SeptolServingVolume, SeptolCurrentSide, PromptForActivationToSecondGlove, SeptolMandatoryUse
   customFields: Record<string, unknown>;
 }
 
@@ -278,9 +283,7 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     connection: getConnectionSummary(scopedDevices),
     // All devices (connected + disconnected + unknown) — frontend filters by connectionStatusKey
     devices: getAllDevices(scopedDevices),
-    // Operational summary: Operational = connected, Non-Operational = !connected
-    // Note: "operational" is derived from _status._connection._connected (confirmed BIOT field).
-    // There is no separate dedicated "operational" status field confirmed in the BIOT REST API.
+    // Operational summary: Operational = delivery_available === true, Non-Operational = otherwise
     operational: getOperationalSummary(scopedDevices),
     gloves,
     sanitizer: getSanitizerSummary(scopedDevices),
@@ -427,6 +430,8 @@ function getAllDevices(devices: NormalizedDevice[]): Record<string, unknown> {
     lastConnectedAt: d.lastConnectedAt,
     sanitizerStatus: d.sanitizerStatus,
     sanitizerStatusKey: d.sanitizerStatusKey,
+    // Drives Operational widget and Delivery row
+    deliveryAvailable: d.deliveryAvailable,
     // Full _status object — frontend uses this for the detail panel Status tab
     rawStatus: d.rawStatus,
     // Non-system device root fields — frontend uses this for the detail panel Settings tab
@@ -444,14 +449,14 @@ function getAllDevices(devices: NormalizedDevice[]): Record<string, unknown> {
 }
 
 // Operational summary.
-// Definition: Operational = _status._connection._connected === true
-// Non-Operational = _connected === false or null/unknown
-// Note: No dedicated "operational" field has been confirmed in the BIOT REST API.
-// This is derived from the confirmed connection status field.
+// Definition: Operational = delivery_available === true, Non-Operational = everything else.
+// Business rule: a machine is Operational when it can deliver (gloves + sanitizer ready).
+// Field: _status.delivery_available (snake_case, consistent with septol_availability1).
+// Falls back to non_operational when the field is absent (null).
 function getOperationalSummary(devices: NormalizedDevice[]): Record<string, unknown> {
   const counts = { operational: 0, non_operational: 0 };
   for (const d of devices) {
-    if (d.connected === true) {
+    if (d.deliveryAvailable === true) {
       counts.operational += 1;
     } else {
       counts.non_operational += 1;
@@ -506,12 +511,15 @@ function normalizeDevice(device: unknown): NormalizedDevice {
     ? { ...(d._status as Record<string, unknown>) }
     : {};
 
-  // Extract device-level custom fields: any non-underscore-prefixed root field
+  // delivery_available drives the Operational widget and Delivery row in Status tab.
+  // Snake_case consistent with confirmed septol_availability1. May be null if field absent.
+  const deliveryAvailable = nestedGet(d, ["_status", "delivery_available"]) as boolean | null;
+
+  // Extract device-level custom fields: any non-underscore-prefixed root field.
   // In BIOT, system fields start with _ (e.g., _id, _status, _ownerOrganization).
-  // Custom fields defined in the device template appear at root level without _.
-  // These may include: sw_version, default_glove_size, nfc_required, etc.
-  // The exact field names depend on the device template in use — they are NOT
-  // confirmed from code inspection alone and may vary.
+  // Confirmed template fields from BIOT device template screenshots (PascalCase):
+  //   SoftwareVersion, GloveDefaultSize, UserIdentificationRequired,
+  //   SeptolServingVolume, SeptolCurrentSide, PromptForActivationToSecondGlove, SeptolMandatoryUse
   const customFields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(d)) {
     if (!key.startsWith("_")) {
@@ -530,6 +538,7 @@ function normalizeDevice(device: unknown): NormalizedDevice {
     sanitizerStatus: san.label,
     sanitizerStatusKey: san.key,
     sanitizerValue: nestedGet(d, ["_status", "septol_availability1"]),
+    deliveryAvailable,
     rawStatus,
     customFields,
   };

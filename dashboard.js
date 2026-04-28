@@ -515,6 +515,7 @@ function normalizeDeviceItem(device) {
     lastConnectedAt: device.lastConnectedAt || null,
     sanitizerStatus: device.sanitizerStatus ? String(device.sanitizerStatus) : "Unknown",
     sanitizerStatusKey: device.sanitizerStatusKey ? String(device.sanitizerStatusKey) : "unknown",
+    deliveryAvailable: typeof device.deliveryAvailable === "boolean" ? device.deliveryAvailable : null,
     rawStatus: device.rawStatus && typeof device.rawStatus === "object" ? device.rawStatus : {},
     customFields: device.customFields && typeof device.customFields === "object" ? device.customFields : {},
   };
@@ -738,10 +739,11 @@ function populateStatusTab(device, viewer) {
   const cartridge = rs.cartridge;
   document.getElementById("detailCartridgeLevel").textContent = formatCartridgeLevel(cartridge);
 
-  // ATTEMPTED: _status.delivery_available — field name unconfirmed.
-  // Fallback: derive from cartridge > 0 + connected.
-  const deliveryRaw = rs.delivery_available;
-  document.getElementById("detailDelivery").textContent = formatDelivery(deliveryRaw, device.connected, cartridge);
+  // Delivery Available — from _status.delivery_available, surfaced as device.deliveryAvailable.
+  // Drives the Operational widget. Null when field is absent in device data.
+  document.getElementById("detailDelivery").textContent =
+    device.deliveryAvailable === true ? "Available" :
+    device.deliveryAvailable === false ? "Not Available" : "—";
 
   // ── Organization ────────────────────────────────────────────────────────
   const isManufacturer = viewer && viewer.role === "manufacturer";
@@ -779,59 +781,37 @@ function populateStatusTab(device, viewer) {
 
 function populateSettingsTab(device) {
   const cf = device.customFields || {};
-  const rs = device.rawStatus || {};
 
-  // All settings fields below are UNCONFIRMED — they depend on the device template
-  // defined in the BIOT system. The field names are attempted based on the socket
-  // simulator (SettingsEvent) and common BIOT naming patterns. If the template uses
-  // different names, these will show "—".
+  // Field names confirmed from BIOT device template screenshots (PascalCase).
 
-  // SW Version — ATTEMPTED: common field names for firmware/software version
-  const swVersion = firstStrVal([
-    cf.sw_version, cf.swVersion, cf.firmware_version, cf.firmwareVersion,
-    cf.fw_version, cf.fwVersion, rs.sw_version, rs.fw_version,
-  ]);
-  document.getElementById("detailSwVersion").textContent = swVersion || "—";
+  // Software version
+  document.getElementById("detailSwVersion").textContent =
+    firstStrVal([cf.SoftwareVersion]) || "—";
 
-  // Glove default size — ATTEMPTED: socket simulator uses "defaultGloveSize"
-  const defaultSize = firstStrVal([
-    cf.default_glove_size, cf.defaultGloveSize, cf.glove_default_size, cf.gloveSizeDefault,
-  ]);
-  document.getElementById("detailDefaultGloveSize").textContent = defaultSize ? defaultSize.toUpperCase() : "—";
+  // Glove default size — display as-is (values from template: "small", "medium", etc.)
+  document.getElementById("detailDefaultGloveSize").textContent =
+    firstStrVal([cf.GloveDefaultSize]) || "—";
 
-  // NFC card required — ATTEMPTED: common BIOT naming patterns
-  const nfcRaw = firstDefinedVal([
-    cf.nfc_required, cf.nfcRequired, cf.user_identification_required,
-    cf.userIdentificationRequired, cf.nfc_mandatory,
-  ]);
-  document.getElementById("detailNfcRequired").textContent = formatBoolField(nfcRaw);
+  // NFC / user identification required
+  document.getElementById("detailNfcRequired").textContent =
+    formatBoolField(cf.UserIdentificationRequired !== undefined ? cf.UserIdentificationRequired : null);
 
-  // 2nd glove prompt — ATTEMPTED
-  const secondGloveRaw = firstDefinedVal([
-    cf.prompt_second_glove, cf.promptSecondGlove, cf.prompt_for_second_glove,
-    cf.second_glove_prompt, cf.secondGlovePrompt,
-  ]);
-  document.getElementById("detailSecondGlovePrompt").textContent = formatBoolField(secondGloveRaw);
+  // 2nd glove activation prompt
+  document.getElementById("detailSecondGlovePrompt").textContent =
+    formatBoolField(cf.PromptForActivationToSecondGlove !== undefined ? cf.PromptForActivationToSecondGlove : null);
 
-  // Sanitizer serving volume — ATTEMPTED
-  const volume = firstDefinedVal([
-    cf.sanitizer_volume, cf.sanitizerVolume, cf.serving_volume, cf.servingVolume,
-    cf.septol_volume, cf.septolVolume,
-  ]);
+  // Sanitizer serving volume
+  const volume = cf.SeptolServingVolume;
   document.getElementById("detailSanitizerVolume").textContent =
     volume !== null && volume !== undefined ? String(volume) : "—";
 
-  // Sanitizer side — ATTEMPTED
-  const side = firstStrVal([
-    cf.sanitizer_side, cf.sanitizerSide, cf.septol_side, cf.septolSide,
-  ]);
-  document.getElementById("detailSanitizerSide").textContent = side || "—";
+  // Sanitizer side
+  document.getElementById("detailSanitizerSide").textContent =
+    firstStrVal([cf.SeptolCurrentSide]) || "—";
 
-  // Sanitizer mandatory — ATTEMPTED
-  const mandatoryRaw = firstDefinedVal([
-    cf.sanitizer_mandatory, cf.sanitizerMandatory, cf.septol_mandatory, cf.septolMandatory,
-  ]);
-  document.getElementById("detailSanitizerMandatory").textContent = formatBoolField(mandatoryRaw);
+  // Sanitizer mandatory use
+  document.getElementById("detailSanitizerMandatory").textContent =
+    formatBoolField(cf.SeptolMandatoryUse !== undefined ? cf.SeptolMandatoryUse : null);
 }
 
 // ---------------------------------------------------------------------------

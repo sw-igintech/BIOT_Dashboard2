@@ -6,8 +6,8 @@ claude/
 __pycache__/
 *.pyc
 
-# Reference project (local only — not part of the dashboard codebase)
-GitLabTandemG/
+# Reference project symlink (local only — not part of the dashboard codebase)
+GitLabTandemG
 
 # Supabase CLI temp files
 supabase/.temp/

@@ -673,11 +673,11 @@ function openDeviceDetail(device, viewer) {
   // Populate header
   document.getElementById("detailDeviceId").textContent = device.id;
 
-  // Populate Status tab
+  // Populate Status tab (synchronous — data already in rawStatus)
   populateStatusTab(device, viewer);
 
-  // Populate Settings tab
-  populateSettingsTab(device);
+  // Populate Settings tab (async — fetches separate settings entity from Edge Function)
+  populateSettingsTab(device).catch(() => { /* error shown inside populateSettingsTab */ });
 
   // Show panel
   const panel = document.getElementById("deviceDetailPanel");
@@ -713,37 +713,44 @@ function populateStatusTab(device, viewer) {
   connEl.innerHTML = "";
   connEl.appendChild(buildStatusBadge(device.connectionStatus));
 
-  // ATTEMPTED: _status._connection.interface or _status._connection._interface
-  // These field names have NOT been verified from a live BIOT REST API response.
-  // The socket simulator does not expose this field. May be null for all devices.
-  const connObj = (rs._connection && typeof rs._connection === "object") ? rs._connection : {};
-  const iface = firstStrVal([connObj.interface, connObj["_interface"], connObj.type, connObj._type]);
-  document.getElementById("detailConnInterface").textContent = iface || "—";
+  // CONFIRMED: _status.connectivity_interface (at _status root, NOT nested in _connection)
+  // Live value example: "wifi"
+  const iface = rs.connectivity_interface;
+  document.getElementById("detailConnInterface").textContent =
+    typeof iface === "string" && iface ? iface : "—";
 
   // CONFIRMED: _status._connection._lastConnectedTime
   document.getElementById("detailLastConnected").textContent = formatNullableDateTime(device.lastConnectedAt);
 
-  // ── Levels ──────────────────────────────────────────────────────────────
-  // ATTEMPTED: _status.septol (0=empty, 1=partial, 2=full from socket simulator)
-  // Field name not confirmed via REST API — based on socket simulator StatusEvent.
-  const septol = rs.septol;
-  document.getElementById("detailSanitizerLevel").textContent = formatSeptolLevel(septol);
-
-  // ATTEMPTED: _status.trash (0–1 fraction from socket simulator)
-  // Field name not confirmed via REST API.
-  const trash = rs.trash;
-  document.getElementById("detailBinLevel").textContent = formatBinLevel(trash);
-
-  // ATTEMPTED: _status.cartridge (0–6 from socket simulator, total cartridge slots)
-  // Field name not confirmed via REST API.
-  const cartridge = rs.cartridge;
-  document.getElementById("detailCartridgeLevel").textContent = formatCartridgeLevel(cartridge);
-
-  // Delivery Available — from _status.delivery_available, surfaced as device.deliveryAvailable.
-  // Drives the Operational widget. Null when field is absent in device data.
+  // ── Device Status ────────────────────────────────────────────────────────
+  // CONFIRMED: _status.delivery_available1 (boolean) — drives the Operational widget
   document.getElementById("detailDelivery").textContent =
-    device.deliveryAvailable === true ? "Available" :
-    device.deliveryAvailable === false ? "Not Available" : "—";
+    device.deliveryAvailable === true ? "Yes" :
+    device.deliveryAvailable === false ? "No" : "—";
+
+  // CONFIRMED: _status.septol_availability1 (boolean) — sanitizer (septol) available
+  const septolAvail = rs.septol_availability1;
+  document.getElementById("detailSanitizerAvail").textContent =
+    septolAvail === true ? "Available" : septolAvail === false ? "Not Available" : "—";
+
+  // CONFIRMED: _status.bin_level1 (integer — current bin fill count, not a 0-1 fraction)
+  const binLevel = rs.bin_level1;
+  document.getElementById("detailBinLevel").textContent =
+    (binLevel !== null && binLevel !== undefined) ? String(binLevel) : "—";
+
+  // ── Gloves In Stock ──────────────────────────────────────────────────────
+  // CONFIRMED: _status.total_small_gloves, total_medium_gloves, total_large_gloves,
+  //            total_extra_large_gloves (integers — current stock counts)
+  const gloveFields = {
+    detailGlovesSmall: rs.total_small_gloves,
+    detailGlovesMedium: rs.total_medium_gloves,
+    detailGlovesLarge: rs.total_large_gloves,
+    detailGlovesXL: rs.total_extra_large_gloves,
+  };
+  for (const [elId, val] of Object.entries(gloveFields)) {
+    document.getElementById(elId).textContent =
+      (val !== null && val !== undefined) ? String(val) : "—";
+  }
 
   // ── Organization ────────────────────────────────────────────────────────
   const isManufacturer = viewer && viewer.role === "manufacturer";
@@ -757,103 +764,96 @@ function populateStatusTab(device, viewer) {
     endUserRow.classList.add("hidden");
   }
 
-  // Distributor: No confirmed BIOT field name for this in the current device data.
-  // The reference project shows distributors as a separate generic entity type ("distributor")
-  // not embedded in the device object. Showing organization name as a placeholder.
-  // This field requires either a parent organization relationship (not confirmed in device data)
-  // or an additional BIOT entity query, which is outside the scope of the current implementation.
+  // Distributor: not embedded in device data — separate generic entity type in BIOT.
+  // Showing hidden for now; would require an additional entity query not yet implemented.
   const distributorRow = document.getElementById("detailDistributorRow");
-  if (isManufacturer) {
-    distributorRow.classList.remove("hidden");
-    // ATTEMPTED: try common field name patterns in customFields
-    const cf = device.customFields || {};
-    const dist = firstStrVal([
-      cf.distributor,
-      cf.distributor_name,
-      cf.distributorOrganization,
-      cf.distributor_organization,
-    ]);
-    document.getElementById("detailDistributor").textContent = dist || "—";
-  } else {
-    distributorRow.classList.add("hidden");
-  }
+  distributorRow.classList.add("hidden");
 }
 
-function populateSettingsTab(device) {
-  const cf = device.customFields || {};
+async function populateSettingsTab(device) {
+  const loadingEl = document.getElementById("settingsLoadingMsg");
+  const errorEl = document.getElementById("settingsErrorMsg");
 
-  // Field names confirmed from BIOT device template screenshots (PascalCase).
+  // Reset display state
+  if (loadingEl) loadingEl.classList.remove("hidden");
+  if (errorEl) errorEl.classList.add("hidden");
+  _clearSettingsFields();
 
-  // Software version
+  // Settings live in a separate BIOT generic entity, not in the device object.
+  // The device exposes current_settings2.id as the entity reference.
+  const settingsRef = device.customFields && device.customFields.current_settings2;
+  const settingsId = settingsRef && typeof settingsRef === "object" ? settingsRef.id : null;
+
+  if (!settingsId) {
+    if (loadingEl) loadingEl.classList.add("hidden");
+    return;
+  }
+
+  let settings;
+  try {
+    settings = await appsScriptRequest({ action: "entity", id: settingsId });
+  } catch {
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (errorEl) errorEl.classList.remove("hidden");
+    return;
+  }
+
+  // Guard: user may have closed the panel or opened a different device while we were fetching
+  if (state.selectedDeviceId !== device.id) return;
+
+  if (loadingEl) loadingEl.classList.add("hidden");
+
+  if (!settings) return;
+
+  // Apply confirmed BIOT settings entity field names (all lowercase, confirmed 2026-04-28)
+
+  // software_version is a nested object; the version string is at software_version.name
+  const swVersionObj = settings.software_version;
   document.getElementById("detailSwVersion").textContent =
-    firstStrVal([cf.SoftwareVersion]) || "—";
+    (swVersionObj && typeof swVersionObj === "object" && swVersionObj.name)
+      ? String(swVersionObj.name) : "—";
 
-  // Glove default size — display as-is (values from template: "small", "medium", etc.)
+  // glovedefaultsize: string ("small", "medium", "large", "extra_large")
   document.getElementById("detailDefaultGloveSize").textContent =
-    firstStrVal([cf.GloveDefaultSize]) || "—";
+    firstStrVal([settings.glovedefaultsize]) || "—";
 
-  // NFC / user identification required
+  // useridentificationrequired: boolean
   document.getElementById("detailNfcRequired").textContent =
-    formatBoolField(cf.UserIdentificationRequired !== undefined ? cf.UserIdentificationRequired : null);
+    formatBoolField(settings.useridentificationrequired !== undefined ? settings.useridentificationrequired : null);
 
-  // 2nd glove activation prompt
+  // promptforactivationtosecondglove: boolean
   document.getElementById("detailSecondGlovePrompt").textContent =
-    formatBoolField(cf.PromptForActivationToSecondGlove !== undefined ? cf.PromptForActivationToSecondGlove : null);
+    formatBoolField(settings.promptforactivationtosecondglove !== undefined ? settings.promptforactivationtosecondglove : null);
 
-  // Sanitizer serving volume
-  const volume = cf.SeptolServingVolume;
+  // septolservingvolume: number
+  const volume = settings.septolservingvolume;
   document.getElementById("detailSanitizerVolume").textContent =
-    volume !== null && volume !== undefined ? String(volume) : "—";
+    (volume !== null && volume !== undefined) ? String(volume) : "—";
 
-  // Sanitizer side
+  // septolcurrentside: string ("left" / "right")
   document.getElementById("detailSanitizerSide").textContent =
-    firstStrVal([cf.SeptolCurrentSide]) || "—";
+    firstStrVal([settings.septolcurrentside]) || "—";
 
-  // Sanitizer mandatory use
+  // septolmandatoryuse: boolean
   document.getElementById("detailSanitizerMandatory").textContent =
-    formatBoolField(cf.SeptolMandatoryUse !== undefined ? cf.SeptolMandatoryUse : null);
+    formatBoolField(settings.septolmandatoryuse !== undefined ? settings.septolmandatoryuse : null);
+}
+
+function _clearSettingsFields() {
+  const ids = [
+    "detailSwVersion", "detailDefaultGloveSize", "detailNfcRequired",
+    "detailSecondGlovePrompt", "detailSanitizerVolume", "detailSanitizerSide",
+    "detailSanitizerMandatory",
+  ];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = "—";
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Device field formatting helpers
 // ---------------------------------------------------------------------------
-
-// septol: 0 = empty, 1 = partial, 2 = full (from socket simulator)
-function formatSeptolLevel(value) {
-  if (value === null || value === undefined) return "—";
-  if (value === 0) return "Empty";
-  if (value === 1) return "Partial";
-  if (value === 2) return "Full";
-  return String(value);
-}
-
-// trash: 0–1 fraction (0 = empty, 1 = full) from socket simulator
-function formatBinLevel(value) {
-  if (value === null || value === undefined) return "—";
-  const pct = Math.round(Number(value) * 100);
-  if (Number.isNaN(pct)) return String(value);
-  return `${pct}%`;
-}
-
-// cartridge: 0–6 total loaded cartridge slots (socket simulator)
-function formatCartridgeLevel(value) {
-  if (value === null || value === undefined) return "—";
-  return `${value}/6`;
-}
-
-// delivery_available may be boolean OR derived from state
-function formatDelivery(rawValue, connected, cartridge) {
-  if (rawValue !== null && rawValue !== undefined) {
-    if (typeof rawValue === "boolean") return rawValue ? "Available" : "Not Available";
-    return String(rawValue);
-  }
-  // Derivation: available if connected AND has at least one cartridge
-  if (connected === true && cartridge !== null && cartridge !== undefined && Number(cartridge) > 0) {
-    return "Available";
-  }
-  if (connected === false) return "Not Available";
-  return "—";
-}
 
 function formatBoolField(value) {
   if (value === null || value === undefined) return "—";
@@ -867,14 +867,6 @@ function formatBoolField(value) {
 function firstStrVal(values) {
   for (const v of values) {
     if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return null;
-}
-
-// Return first defined (non-undefined, non-null) value from an array
-function firstDefinedVal(values) {
-  for (const v of values) {
-    if (v !== undefined && v !== null) return v;
   }
   return null;
 }

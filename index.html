@@ -12,8 +12,8 @@
     };
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="./dashboard.css?v=20260428-3" />
-  <script src="./dashboard.js?v=20260428-3" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260428-4" />
+  <script src="./dashboard.js?v=20260428-4" defer></script>
 </head>
 <body>
 
@@ -254,22 +254,35 @@
             </div>
 
             <div class="detail-section">
-              <div class="detail-section-title">Levels</div>
+              <div class="detail-section-title">Status</div>
               <div class="detail-row">
-                <span class="detail-row-label">Sanitizer Level</span>
-                <span id="detailSanitizerLevel">—</span>
+                <span class="detail-row-label">Delivery Available</span>
+                <span id="detailDelivery">—</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-row-label">Sanitizer</span>
+                <span id="detailSanitizerAvail">—</span>
               </div>
               <div class="detail-row">
                 <span class="detail-row-label">Bin Level</span>
                 <span id="detailBinLevel">—</span>
               </div>
+              <div class="detail-section-title" style="margin-top:0.75rem">Gloves In Stock</div>
               <div class="detail-row">
-                <span class="detail-row-label">Cartridge Level</span>
-                <span id="detailCartridgeLevel">—</span>
+                <span class="detail-row-label">Small</span>
+                <span id="detailGlovesSmall">—</span>
               </div>
               <div class="detail-row">
-                <span class="detail-row-label">Delivery</span>
-                <span id="detailDelivery">—</span>
+                <span class="detail-row-label">Medium</span>
+                <span id="detailGlovesMedium">—</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-row-label">Large</span>
+                <span id="detailGlovesLarge">—</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-row-label">Extra Large</span>
+                <span id="detailGlovesXL">—</span>
               </div>
             </div>
 
@@ -290,6 +303,8 @@
 
         <!-- Settings tab -->
         <div id="detailTabSettings" class="detail-content hidden" role="tabpanel">
+          <div id="settingsLoadingMsg" class="detail-loading hidden">Loading settings…</div>
+          <div id="settingsErrorMsg" class="detail-loading detail-loading--error hidden">Could not load settings.</div>
           <div class="detail-grid">
 
             <div class="detail-section">

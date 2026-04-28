@@ -1,0 +1,10 @@
+# Local Claude workspace — credentials, debug scripts, field notes
+# NEVER commit anything under claude/
+claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

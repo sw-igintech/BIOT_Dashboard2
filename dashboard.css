@@ -841,6 +841,22 @@ tbody tr:last-child td
   word-break: break-word;
 }
 
+/* Settings tab — loading / error state */
+.detail-loading
+{
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.detail-loading--error
+{
+  color: #b91c1c;
+  font-style: normal;
+  font-weight: 600;
+}
+
 /* ---------------------------------------------------------------------------
    Login overlay
 --------------------------------------------------------------------------- */

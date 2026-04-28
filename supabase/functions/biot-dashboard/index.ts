@@ -84,18 +84,21 @@ interface NormalizedDevice {
   sanitizerStatusKey: string;
   sanitizerValue: unknown;
   // Delivery available — drives the Operational widget.
-  // Expected field: _status.delivery_available (boolean).
-  // Naming is snake_case consistent with confirmed _status.septol_availability1.
+  // Confirmed field: _status.delivery_available1 (boolean, confirmed 2026-04-28).
   deliveryAvailable: boolean | null;
-  // Full _status object — allows frontend to read device state fields
-  // Confirmed fields: _connection._connected, _connection._lastConnectedTime, septol_availability1
-  // Additional fields (based on socket simulator model, names not verified via REST API):
-  //   septol (0-2), trash (0-1), cartridge (0-6), lidOpen (bool)
+  // Full _status object — allows frontend to read device state fields.
+  // Confirmed fields (live API 2026-04-28):
+  //   _connection._connected, _connection._lastConnectedTime, _connection._ipAddress
+  //   connectivity_interface, connectivity_rssi, connectivity_apn, connectivity_ssid
+  //   bin_level1 (integer), lid_status1, delivery_available1, septol_availability1
+  //   total_small_gloves, total_medium_gloves, total_large_gloves, total_extra_large_gloves
+  // Fields that do NOT exist (socket simulator only):
+  //   septol (numeric level), trash (fraction), cartridge (slot count)
   rawStatus: Record<string, unknown>;
-  // Non-system custom fields at device root level (field names depend on BIOT device template)
-  // Confirmed template fields (from BIOT device template screenshots):
-  //   SoftwareVersion, GloveDefaultSize, UserIdentificationRequired,
-  //   SeptolServingVolume, SeptolCurrentSide, PromptForActivationToSecondGlove, SeptolMandatoryUse
+  // Non-system device root fields (non-underscore-prefixed).
+  // Includes the current_settings2 reference object: { id: UUID, templateName: "device_current_settings", ... }
+  // Use customFields.current_settings2.id + the "entity" action to fetch actual settings values.
+  // Settings field names in the entity are lowercase: glovedefaultsize, useridentificationrequired, etc.
   customFields: Record<string, unknown>;
 }
 
@@ -165,6 +168,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
         );
       }
       const data = await buildDashboard(params, userToken);
+      return ok({ ok: true, data });
+    }
+
+    // ── entity — fetch a single generic entity by ID (used for device settings) ──
+    if (action === "entity") {
+      const userToken = req.headers.get("x-biot-token");
+      if (!userToken) {
+        return new Response(
+          JSON.stringify({ ok: false, error: { message: "Not authenticated. Please log in." } }),
+          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      const entityId = params.id ?? "";
+      if (!entityId) {
+        return err({ ok: false, error: { message: "id parameter is required." } }, 400);
+      }
+      const config: BiotConfig = { baseUrl: getBaseUrl() };
+      const data = await fetchBiot(config, "GET", `/generic-entity/v1/generic-entities/${entityId}`, {
+        accessToken: userToken,
+      });
       return ok({ ok: true, data });
     }
 
@@ -511,15 +534,14 @@ function normalizeDevice(device: unknown): NormalizedDevice {
     ? { ...(d._status as Record<string, unknown>) }
     : {};
 
-  // delivery_available drives the Operational widget and Delivery row in Status tab.
-  // Snake_case consistent with confirmed septol_availability1. May be null if field absent.
-  const deliveryAvailable = nestedGet(d, ["_status", "delivery_available"]) as boolean | null;
+  // delivery_available1 drives the Operational widget and Delivery row in Status tab.
+  // Confirmed field name from live API 2026-04-28. Has the `1` suffix like septol_availability1.
+  const deliveryAvailable = nestedGet(d, ["_status", "delivery_available1"]) as boolean | null;
 
   // Extract device-level custom fields: any non-underscore-prefixed root field.
   // In BIOT, system fields start with _ (e.g., _id, _status, _ownerOrganization).
-  // Confirmed template fields from BIOT device template screenshots (PascalCase):
-  //   SoftwareVersion, GloveDefaultSize, UserIdentificationRequired,
-  //   SeptolServingVolume, SeptolCurrentSide, PromptForActivationToSecondGlove, SeptolMandatoryUse
+  // The main non-system field confirmed in device root: current_settings2 (reference to settings entity).
+  // Actual settings values live in the separate entity — fetch via GET /generic-entity/v1/generic-entities/{id}.
   const customFields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(d)) {
     if (!key.startsWith("_")) {

@@ -23,6 +23,11 @@ const CONNECTION_BREAKDOWN: [string, string][] = [
   ["unknown", "Unknown"],
 ];
 
+const OPERATIONAL_BREAKDOWN: [string, string][] = [
+  ["operational", "Operational"],
+  ["non_operational", "Non-Operational"],
+];
+
 const SANITIZER_BREAKDOWN: [string, string][] = [
   ["available", "Available"],
   ["unavailable", "Unavailable"],
@@ -78,6 +83,15 @@ interface NormalizedDevice {
   sanitizerStatus: string;
   sanitizerStatusKey: string;
   sanitizerValue: unknown;
+  // Full _status object — allows frontend to read device state fields
+  // Confirmed fields: _connection._connected, _connection._lastConnectedTime, septol_availability1
+  // Additional fields (based on socket simulator model, names not verified via REST API):
+  //   septol (0-2), trash (0-1), cartridge (0-6), lidOpen (bool)
+  rawStatus: Record<string, unknown>;
+  // Non-system custom fields at device root level (field names depend on BIOT device template)
+  // Settings fields like sw_version, default_glove_size, nfc_required, etc.
+  // would appear here if the device template defines them.
+  customFields: Record<string, unknown>;
 }
 
 // Thrown when BIOT returns 401 so the Edge Function can propagate it
@@ -262,7 +276,12 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     },
     organizations,
     connection: getConnectionSummary(scopedDevices),
-    offlineDevices: getOfflineDevices(scopedDevices),
+    // All devices (connected + disconnected + unknown) — frontend filters by connectionStatusKey
+    devices: getAllDevices(scopedDevices),
+    // Operational summary: Operational = connected, Non-Operational = !connected
+    // Note: "operational" is derived from _status._connection._connected (confirmed BIOT field).
+    // There is no separate dedicated "operational" status field confirmed in the BIOT REST API.
+    operational: getOperationalSummary(scopedDevices),
     gloves,
     sanitizer: getSanitizerSummary(scopedDevices),
     meta: {
@@ -325,6 +344,16 @@ async function getGloveSummary(
         filter: {
           event_code: { eq: "GLOVE_TAKEN" },
           "_ownerOrganization.id": { eq: organizationId },
+          // Time filtering:
+          // fromIso and toIso are full UTC ISO strings built by the frontend from the
+          // user's selected local date+time, converted to UTC via Date.toISOString().
+          // BIOT's _creationTime stores timestamps in UTC.
+          // This means the filter is: "show events where _creationTime is between
+          // fromIso and toIso (both in UTC)".
+          // The frontend converts: local 00:00 → UTC equivalent. This is correct behavior
+          // because users expect to filter by their local clock.
+          // Limitation: if the BIOT Grafana dashboard uses a different configured timezone,
+          // results may differ. This has not been independently verified.
           _creationTime: { from: dateRange.fromIso, to: dateRange.toIso },
         },
         limit: 100,
@@ -386,12 +415,51 @@ function getConnectionSummary(devices: NormalizedDevice[]): Record<string, unkno
   return { total: devices.length, counts, breakdown: buildBreakdown(counts, CONNECTION_BREAKDOWN) };
 }
 
-function getOfflineDevices(devices: NormalizedDevice[]): Record<string, unknown> {
-  const items = devices
-    .filter((d) => d.connectionStatusKey === "disconnected")
-    .map((d) => ({ id: d.id, lastConnectedAt: d.lastConnectedAt, connected: d.connected, connectionStatus: d.connectionStatus }));
-  items.sort((a, b) => (a.lastConnectedAt ?? "") < (b.lastConnectedAt ?? "") ? -1 : 1);
+// Returns ALL devices (connected + disconnected + unknown) so the frontend can filter
+function getAllDevices(devices: NormalizedDevice[]): Record<string, unknown> {
+  const items = devices.map((d) => ({
+    id: d.id,
+    organizationId: d.organizationId,
+    organizationName: d.organizationName,
+    connected: d.connected,
+    connectionStatus: d.connectionStatus,
+    connectionStatusKey: d.connectionStatusKey,
+    lastConnectedAt: d.lastConnectedAt,
+    sanitizerStatus: d.sanitizerStatus,
+    sanitizerStatusKey: d.sanitizerStatusKey,
+    // Full _status object — frontend uses this for the detail panel Status tab
+    rawStatus: d.rawStatus,
+    // Non-system device root fields — frontend uses this for the detail panel Settings tab
+    customFields: d.customFields,
+  }));
+  // Default sort: disconnected first, then by lastConnectedAt ascending
+  items.sort((a, b) => {
+    const keyOrder: Record<string, number> = { disconnected: 0, unknown: 1, connected: 2 };
+    const ao = keyOrder[a.connectionStatusKey] ?? 1;
+    const bo = keyOrder[b.connectionStatusKey] ?? 1;
+    if (ao !== bo) return ao - bo;
+    return (a.lastConnectedAt ?? "") < (b.lastConnectedAt ?? "") ? -1 : 1;
+  });
   return { total: items.length, items };
+}
+
+// Operational summary.
+// Definition: Operational = _status._connection._connected === true
+// Non-Operational = _connected === false or null/unknown
+// Note: No dedicated "operational" field has been confirmed in the BIOT REST API.
+// This is derived from the confirmed connection status field.
+function getOperationalSummary(devices: NormalizedDevice[]): Record<string, unknown> {
+  const counts = { operational: 0, non_operational: 0 };
+  for (const d of devices) {
+    if (d.connected === true) {
+      counts.operational += 1;
+    } else {
+      counts.non_operational += 1;
+    }
+  }
+  const total = devices.length;
+  const breakdown = buildBreakdown(counts, OPERATIONAL_BREAKDOWN);
+  return { total, counts, breakdown };
 }
 
 function getSanitizerSummary(devices: NormalizedDevice[]): Record<string, unknown> {
@@ -432,6 +500,25 @@ function normalizeDevice(device: unknown): NormalizedDevice {
   const san = normalizeSanitizerStatus(nestedGet(d, ["_status", "septol_availability1"]));
   const owner = d._ownerOrganization && typeof d._ownerOrganization === "object"
     ? (d._ownerOrganization as Record<string, unknown>) : {};
+
+  // Extract full _status object for the detail panel
+  const rawStatus: Record<string, unknown> = (d._status && typeof d._status === "object")
+    ? { ...(d._status as Record<string, unknown>) }
+    : {};
+
+  // Extract device-level custom fields: any non-underscore-prefixed root field
+  // In BIOT, system fields start with _ (e.g., _id, _status, _ownerOrganization).
+  // Custom fields defined in the device template appear at root level without _.
+  // These may include: sw_version, default_glove_size, nfc_required, etc.
+  // The exact field names depend on the device template in use — they are NOT
+  // confirmed from code inspection alone and may vary.
+  const customFields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(d)) {
+    if (!key.startsWith("_")) {
+      customFields[key] = value;
+    }
+  }
+
   return {
     id: String(firstNonEmpty([d._id, d.id]) ?? "Unknown device"),
     organizationId: firstNonEmpty([owner.id, owner._id]) as string | null,
@@ -443,6 +530,8 @@ function normalizeDevice(device: unknown): NormalizedDevice {
     sanitizerStatus: san.label,
     sanitizerStatusKey: san.key,
     sanitizerValue: nestedGet(d, ["_status", "septol_availability1"]),
+    rawStatus,
+    customFields,
   };
 }
 
@@ -605,6 +694,8 @@ function resolveDateRange(params: Record<string, string>): DateRange {
   if (from > to) throw new Error("The start date must be on or before the end date.");
   return {
     from, to,
+    // Use provided ISO strings from frontend (which convert local time → UTC).
+    // Fallback: midnight UTC if not provided (no time filtering).
     fromIso: params.fromIso || `${from}T00:00:00.000Z`,
     toIso: params.toIso || `${to}T23:59:59.999Z`,
     timezone: params.timezone || "UTC",

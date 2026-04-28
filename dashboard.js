@@ -16,9 +16,12 @@ const CHART_COLORS = {
     unavailable: "#f97316",
     unknown: "#94a3b8",
   },
+  operational: {
+    operational: "#22c55e",
+    non_operational: "#f97316",
+  },
 };
 
-// Full breakdown arrays used for data processing (includes unknown)
 const CONNECTION_BREAKDOWN = [
   ["connected", "Connected"],
   ["disconnected", "Disconnected"],
@@ -39,6 +42,11 @@ const SANITIZER_BREAKDOWN = [
   ["unknown", "Unknown"],
 ];
 
+const OPERATIONAL_BREAKDOWN = [
+  ["operational", "Operational"],
+  ["non_operational", "Non-Operational"],
+];
+
 const GENERIC_REQUEST_ERROR = "Unable to load dashboard data right now. Please try again.";
 const REQUEST_TIMEOUT_MS = 90000;
 
@@ -54,6 +62,12 @@ const state = {
   charts: {},
   requestId: 0,
   summary: null,
+  // connectionFilter: controls which devices appear in the machines table.
+  // "disconnected" is the default (same as prior "Offline Devices" behavior).
+  // Set to "connected" when the user clicks the Connected legend or chip.
+  connectionFilter: "disconnected",
+  // selectedDeviceId: tracks the currently opened device detail panel.
+  selectedDeviceId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -99,7 +113,6 @@ const auth = {
   },
   isSessionExpired() {
     const start = parseInt(localStorage.getItem(AUTH_KEYS.sessionStart) || "0", 10);
-    // If no session start recorded (pre-timeout-feature login), treat as expired
     if (!start) return true;
     return Date.now() - start > SESSION_MAX_MS;
   },
@@ -153,7 +166,6 @@ document.addEventListener("DOMContentLoaded", () => {
     showDashboardView();
     refreshDashboard();
   } else {
-    // Clean up any expired/stale tokens silently
     if (auth.getToken()) auth.clearTokens();
     showLoginView();
   }
@@ -164,6 +176,7 @@ function wireUi() {
   document.getElementById("organizationSelect").addEventListener("change", () => refreshDashboard());
   document.getElementById("loginForm").addEventListener("submit", handleLoginFormSubmit);
   document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+  document.getElementById("closeDetailBtn").addEventListener("click", closeDeviceDetail);
 
   // Show/Hide password toggle
   document.getElementById("togglePassword").addEventListener("click", () => {
@@ -186,6 +199,20 @@ function wireUi() {
         formatted = digits.slice(0, 2) + "/" + digits.slice(2);
       }
       e.target.value = formatted;
+    });
+  });
+
+  // Connection filter chips (Disconnected / Connected buttons in table header)
+  document.querySelectorAll(".filter-chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setConnectionFilter(btn.dataset.filter);
+    });
+  });
+
+  // Detail panel tab switching
+  document.querySelectorAll(".detail-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      switchDetailTab(tab.dataset.tab);
     });
   });
 }
@@ -242,7 +269,6 @@ async function handleLoginFormSubmit(event) {
 
   try {
     const data = await loginRequest(email, password);
-    // Pass user object so session clock is started
     auth.setTokens(data.accessToken, data.refreshToken, { email, userId: data.userId });
     showDashboardView();
     refreshDashboard();
@@ -260,6 +286,7 @@ function handleLogout() {
   state.summary = null;
   hideDashboardError();
   setDashboardLoading(false);
+  closeDeviceDetail();
   showLoginView();
 }
 
@@ -287,9 +314,8 @@ async function refreshDashboard() {
     return;
   }
 
-  // Check session expiry before every refresh
   if (!auth.isAuthenticated()) {
-    if (auth.getToken()) auth.clearTokens(); // tidy up expired session
+    if (auth.getToken()) auth.clearTokens();
     showLoginView();
     return;
   }
@@ -324,6 +350,8 @@ async function refreshDashboard() {
     if (requestId !== state.requestId) return;
 
     state.summary = summary;
+    // Close any open detail panel when data is refreshed
+    closeDeviceDetail();
     renderOrganizationSelector(summary);
     renderSummary(summary);
   } catch (error) {
@@ -392,17 +420,54 @@ function renderSummary(summary) {
     { label: "Unknown", value: summary.sanitizer.counts.unknown },
   ]);
 
-  renderLegend("connectionLegend", connDisplayBreakdown, CHART_COLORS.connection);
+  // Operational
+  renderMetrics("operationalMetrics", [
+    { label: "Total Devices", value: summary.operational.total },
+    { label: "Operational", value: summary.operational.counts.operational },
+    { label: "Non-Operational", value: summary.operational.counts.non_operational },
+  ]);
+
+  // Legends — connection legend is clickable (sets machines table filter)
+  renderLegend("connectionLegend", connDisplayBreakdown, CHART_COLORS.connection, (key) => {
+    setConnectionFilter(key);
+  });
   renderLegend("gloveLegend", gloveDisplayBreakdown, CHART_COLORS.gloves);
   renderLegend("sanitizerLegend", summary.sanitizer.breakdown, CHART_COLORS.sanitizer);
+  renderLegend("operationalLegend", summary.operational.breakdown, CHART_COLORS.operational);
 
-  // Center totals still show the true full count (including unknown devices)
-  upsertChart("connectionChart", "connection", connDisplayBreakdown, summary.connection.total, "Devices");
+  // Charts — connection chart segments are also clickable
+  upsertChart("connectionChart", "connection", connDisplayBreakdown, summary.connection.total, "Devices", (key) => {
+    setConnectionFilter(key);
+  });
   upsertChart("gloveChart", "gloves", gloveDisplayBreakdown, summary.gloves.total, "Events");
   upsertChart("sanitizerChart", "sanitizer", summary.sanitizer.breakdown, summary.sanitizer.total, "Devices");
+  upsertChart("operationalChart", "operational", summary.operational.breakdown, summary.operational.total, "Devices");
 
-  renderOfflineTable(summary.offlineDevices);
+  renderMachinesTable(summary);
   renderSanitizerTable(summary.sanitizer);
+}
+
+// ---------------------------------------------------------------------------
+// Connection filter (machines table)
+// ---------------------------------------------------------------------------
+
+function setConnectionFilter(key) {
+  if (!["connected", "disconnected"].includes(key)) return;
+  state.connectionFilter = key;
+
+  // Update filter chip active state
+  document.querySelectorAll(".filter-chip").forEach((btn) => {
+    btn.classList.toggle("filter-chip--active", btn.dataset.filter === key);
+  });
+
+  // Update connection legend active state (re-render to reflect current active)
+  if (state.summary) {
+    const connDisplayBreakdown = state.summary.connection.breakdown.filter((b) => b.key !== "unknown");
+    renderLegend("connectionLegend", connDisplayBreakdown, CHART_COLORS.connection, (k) => {
+      setConnectionFilter(k);
+    });
+    renderMachinesTable(state.summary);
+  }
 }
 
 function normalizeDashboardSummary(summary) {
@@ -416,10 +481,42 @@ function normalizeDashboardSummary(summary) {
       ? source.organizations.filter((o) => o && typeof o === "object")
       : [],
     connection: normalizeChartSection(source.connection, CONNECTION_BREAKDOWN),
-    offlineDevices: normalizeOfflineDevices(source.offlineDevices),
+    // All devices — replaces the old offlineDevices (disconnected-only) structure
+    devices: normalizeDevices(source.devices),
+    operational: normalizeChartSection(source.operational, OPERATIONAL_BREAKDOWN),
     gloves: normalizeChartSection(source.gloves, GLOVE_BREAKDOWN),
     sanitizer: normalizeSanitizerSection(source.sanitizer),
     meta: source.meta && typeof source.meta === "object" ? source.meta : {},
+  };
+}
+
+function normalizeDevices(section) {
+  const source = section && typeof section === "object" ? section : {};
+  const items = Array.isArray(source.items) ? source.items.map(normalizeDeviceItem) : [];
+  return { total: items.length, items };
+}
+
+function normalizeDeviceItem(device) {
+  if (!device) {
+    return {
+      id: "Unknown", organizationId: null, organizationName: null,
+      connected: null, connectionStatus: "Unknown", connectionStatusKey: "unknown",
+      lastConnectedAt: null, sanitizerStatus: "Unknown", sanitizerStatusKey: "unknown",
+      rawStatus: {}, customFields: {},
+    };
+  }
+  return {
+    id: device.id ? String(device.id) : "Unknown",
+    organizationId: device.organizationId || null,
+    organizationName: device.organizationName || null,
+    connected: device.connected !== undefined ? device.connected : null,
+    connectionStatus: device.connectionStatus ? String(device.connectionStatus) : "Unknown",
+    connectionStatusKey: device.connectionStatusKey ? String(device.connectionStatusKey) : "unknown",
+    lastConnectedAt: device.lastConnectedAt || null,
+    sanitizerStatus: device.sanitizerStatus ? String(device.sanitizerStatus) : "Unknown",
+    sanitizerStatusKey: device.sanitizerStatusKey ? String(device.sanitizerStatusKey) : "unknown",
+    rawStatus: device.rawStatus && typeof device.rawStatus === "object" ? device.rawStatus : {},
+    customFields: device.customFields && typeof device.customFields === "object" ? device.customFields : {},
   };
 }
 
@@ -459,22 +556,6 @@ function buildBreakdownFromCounts(counts, labels, totalValue) {
   });
 }
 
-function normalizeOfflineDevices(section) {
-  const source = section && typeof section === "object" ? section : {};
-  const items = Array.isArray(source.items)
-    ? source.items.map((device) => ({
-        id: device && device.id ? String(device.id) : "Unknown device",
-        lastConnectedAt: device && device.lastConnectedAt ? device.lastConnectedAt : null,
-        connected: device ? device.connected : null,
-        connectionStatus: device && device.connectionStatus ? String(device.connectionStatus) : "Unknown",
-      }))
-    : [];
-  return {
-    total: Number.isFinite(Number(source.total)) ? Number(source.total) : items.length,
-    items,
-  };
-}
-
 function normalizeSanitizerSection(section) {
   const normalized = normalizeChartSection(section, SANITIZER_BREAKDOWN);
   const source = section && typeof section === "object" ? section : {};
@@ -492,6 +573,330 @@ function normalizeSanitizerSection(section) {
 function toSafeNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Machines table (filterable by connection status)
+// ---------------------------------------------------------------------------
+
+function renderMachinesTable(summary) {
+  const filter = state.connectionFilter;
+  const allItems = summary.devices ? summary.devices.items : [];
+  const filteredItems = allItems.filter((d) => d.connectionStatusKey === filter);
+
+  // Update title and count badge
+  const titleMap = { connected: "Connected Machines", disconnected: "Disconnected Machines" };
+  document.getElementById("machinesTableTitle").textContent = titleMap[filter] || "Machines";
+  document.getElementById("machinesCount").textContent = formatNumber(filteredItems.length);
+
+  const body = document.getElementById("machinesTableBody");
+  const empty = document.getElementById("machinesEmpty");
+  body.innerHTML = "";
+
+  if (!filteredItems.length) {
+    empty.classList.remove("hidden");
+    return;
+  }
+
+  empty.classList.add("hidden");
+  filteredItems.forEach((device) => {
+    const row = document.createElement("tr");
+    row.className = "clickable-row";
+    if (device.id === state.selectedDeviceId) {
+      row.classList.add("clickable-row--selected");
+    }
+
+    row.addEventListener("click", () => {
+      if (state.selectedDeviceId === device.id) {
+        closeDeviceDetail();
+      } else {
+        openDeviceDetail(device, summary.viewer);
+      }
+    });
+
+    row.appendChild(buildTextCell(device.id, "device-id"));
+    row.appendChild(buildTextCell(formatNullableDateTime(device.lastConnectedAt)));
+    row.appendChild(buildStatusCell(device.connectionStatus));
+    body.appendChild(row);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sanitizer table
+// ---------------------------------------------------------------------------
+
+function renderSanitizerTable(sanitizer) {
+  const body = document.getElementById("sanitizerTableBody");
+  const empty = document.getElementById("sanitizerEmpty");
+  body.innerHTML = "";
+
+  document.getElementById("sanitizerCount").textContent = formatNumber(sanitizer.total);
+
+  if (!sanitizer.devices || sanitizer.devices.length === 0) {
+    empty.classList.remove("hidden");
+    return;
+  }
+
+  empty.classList.add("hidden");
+  sanitizer.devices.forEach((device) => {
+    const row = document.createElement("tr");
+    const idCell = buildTextCell(device.id, "device-id");
+    const statusCell = document.createElement("td");
+    const statusBadge = buildStatusBadge(device.status);
+    const rawValue = document.createElement("div");
+    rawValue.className = "muted-copy";
+    rawValue.textContent = `Value: ${formatRawValue(device.value)}`;
+    statusCell.appendChild(statusBadge);
+    statusCell.appendChild(rawValue);
+    row.appendChild(idCell);
+    row.appendChild(statusCell);
+    body.appendChild(row);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Device detail panel
+// ---------------------------------------------------------------------------
+
+function openDeviceDetail(device, viewer) {
+  state.selectedDeviceId = device.id;
+
+  // Update selected row highlight
+  document.querySelectorAll(".clickable-row").forEach((row) => {
+    const idCell = row.querySelector(".device-id");
+    if (idCell) {
+      row.classList.toggle("clickable-row--selected", idCell.textContent === device.id);
+    }
+  });
+
+  // Populate header
+  document.getElementById("detailDeviceId").textContent = device.id;
+
+  // Populate Status tab
+  populateStatusTab(device, viewer);
+
+  // Populate Settings tab
+  populateSettingsTab(device);
+
+  // Show panel
+  const panel = document.getElementById("deviceDetailPanel");
+  panel.classList.remove("hidden");
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function closeDeviceDetail() {
+  state.selectedDeviceId = null;
+  document.getElementById("deviceDetailPanel").classList.add("hidden");
+  document.querySelectorAll(".clickable-row--selected").forEach((row) => {
+    row.classList.remove("clickable-row--selected");
+  });
+}
+
+function switchDetailTab(tab) {
+  document.querySelectorAll(".detail-tab").forEach((btn) => {
+    btn.classList.toggle("detail-tab--active", btn.dataset.tab === tab);
+  });
+  document.querySelectorAll(".detail-content").forEach((content) => {
+    content.classList.add("hidden");
+  });
+  const target = document.getElementById(tab === "status" ? "detailTabStatus" : "detailTabSettings");
+  if (target) target.classList.remove("hidden");
+}
+
+function populateStatusTab(device, viewer) {
+  const rs = device.rawStatus || {};
+
+  // ── Connectivity ────────────────────────────────────────────────────────
+  // CONFIRMED: _status._connection._connected
+  const connEl = document.getElementById("detailConnStatus");
+  connEl.innerHTML = "";
+  connEl.appendChild(buildStatusBadge(device.connectionStatus));
+
+  // ATTEMPTED: _status._connection.interface or _status._connection._interface
+  // These field names have NOT been verified from a live BIOT REST API response.
+  // The socket simulator does not expose this field. May be null for all devices.
+  const connObj = (rs._connection && typeof rs._connection === "object") ? rs._connection : {};
+  const iface = firstStrVal([connObj.interface, connObj["_interface"], connObj.type, connObj._type]);
+  document.getElementById("detailConnInterface").textContent = iface || "—";
+
+  // CONFIRMED: _status._connection._lastConnectedTime
+  document.getElementById("detailLastConnected").textContent = formatNullableDateTime(device.lastConnectedAt);
+
+  // ── Levels ──────────────────────────────────────────────────────────────
+  // ATTEMPTED: _status.septol (0=empty, 1=partial, 2=full from socket simulator)
+  // Field name not confirmed via REST API — based on socket simulator StatusEvent.
+  const septol = rs.septol;
+  document.getElementById("detailSanitizerLevel").textContent = formatSeptolLevel(septol);
+
+  // ATTEMPTED: _status.trash (0–1 fraction from socket simulator)
+  // Field name not confirmed via REST API.
+  const trash = rs.trash;
+  document.getElementById("detailBinLevel").textContent = formatBinLevel(trash);
+
+  // ATTEMPTED: _status.cartridge (0–6 from socket simulator, total cartridge slots)
+  // Field name not confirmed via REST API.
+  const cartridge = rs.cartridge;
+  document.getElementById("detailCartridgeLevel").textContent = formatCartridgeLevel(cartridge);
+
+  // ATTEMPTED: _status.delivery_available — field name unconfirmed.
+  // Fallback: derive from cartridge > 0 + connected.
+  const deliveryRaw = rs.delivery_available;
+  document.getElementById("detailDelivery").textContent = formatDelivery(deliveryRaw, device.connected, cartridge);
+
+  // ── Organization ────────────────────────────────────────────────────────
+  const isManufacturer = viewer && viewer.role === "manufacturer";
+
+  // End User: _ownerOrganization.name — CONFIRMED
+  const endUserRow = document.getElementById("detailEndUserRow");
+  if (isManufacturer) {
+    endUserRow.classList.remove("hidden");
+    document.getElementById("detailEndUser").textContent = device.organizationName || device.organizationId || "—";
+  } else {
+    endUserRow.classList.add("hidden");
+  }
+
+  // Distributor: No confirmed BIOT field name for this in the current device data.
+  // The reference project shows distributors as a separate generic entity type ("distributor")
+  // not embedded in the device object. Showing organization name as a placeholder.
+  // This field requires either a parent organization relationship (not confirmed in device data)
+  // or an additional BIOT entity query, which is outside the scope of the current implementation.
+  const distributorRow = document.getElementById("detailDistributorRow");
+  if (isManufacturer) {
+    distributorRow.classList.remove("hidden");
+    // ATTEMPTED: try common field name patterns in customFields
+    const cf = device.customFields || {};
+    const dist = firstStrVal([
+      cf.distributor,
+      cf.distributor_name,
+      cf.distributorOrganization,
+      cf.distributor_organization,
+    ]);
+    document.getElementById("detailDistributor").textContent = dist || "—";
+  } else {
+    distributorRow.classList.add("hidden");
+  }
+}
+
+function populateSettingsTab(device) {
+  const cf = device.customFields || {};
+  const rs = device.rawStatus || {};
+
+  // All settings fields below are UNCONFIRMED — they depend on the device template
+  // defined in the BIOT system. The field names are attempted based on the socket
+  // simulator (SettingsEvent) and common BIOT naming patterns. If the template uses
+  // different names, these will show "—".
+
+  // SW Version — ATTEMPTED: common field names for firmware/software version
+  const swVersion = firstStrVal([
+    cf.sw_version, cf.swVersion, cf.firmware_version, cf.firmwareVersion,
+    cf.fw_version, cf.fwVersion, rs.sw_version, rs.fw_version,
+  ]);
+  document.getElementById("detailSwVersion").textContent = swVersion || "—";
+
+  // Glove default size — ATTEMPTED: socket simulator uses "defaultGloveSize"
+  const defaultSize = firstStrVal([
+    cf.default_glove_size, cf.defaultGloveSize, cf.glove_default_size, cf.gloveSizeDefault,
+  ]);
+  document.getElementById("detailDefaultGloveSize").textContent = defaultSize ? defaultSize.toUpperCase() : "—";
+
+  // NFC card required — ATTEMPTED: common BIOT naming patterns
+  const nfcRaw = firstDefinedVal([
+    cf.nfc_required, cf.nfcRequired, cf.user_identification_required,
+    cf.userIdentificationRequired, cf.nfc_mandatory,
+  ]);
+  document.getElementById("detailNfcRequired").textContent = formatBoolField(nfcRaw);
+
+  // 2nd glove prompt — ATTEMPTED
+  const secondGloveRaw = firstDefinedVal([
+    cf.prompt_second_glove, cf.promptSecondGlove, cf.prompt_for_second_glove,
+    cf.second_glove_prompt, cf.secondGlovePrompt,
+  ]);
+  document.getElementById("detailSecondGlovePrompt").textContent = formatBoolField(secondGloveRaw);
+
+  // Sanitizer serving volume — ATTEMPTED
+  const volume = firstDefinedVal([
+    cf.sanitizer_volume, cf.sanitizerVolume, cf.serving_volume, cf.servingVolume,
+    cf.septol_volume, cf.septolVolume,
+  ]);
+  document.getElementById("detailSanitizerVolume").textContent =
+    volume !== null && volume !== undefined ? String(volume) : "—";
+
+  // Sanitizer side — ATTEMPTED
+  const side = firstStrVal([
+    cf.sanitizer_side, cf.sanitizerSide, cf.septol_side, cf.septolSide,
+  ]);
+  document.getElementById("detailSanitizerSide").textContent = side || "—";
+
+  // Sanitizer mandatory — ATTEMPTED
+  const mandatoryRaw = firstDefinedVal([
+    cf.sanitizer_mandatory, cf.sanitizerMandatory, cf.septol_mandatory, cf.septolMandatory,
+  ]);
+  document.getElementById("detailSanitizerMandatory").textContent = formatBoolField(mandatoryRaw);
+}
+
+// ---------------------------------------------------------------------------
+// Device field formatting helpers
+// ---------------------------------------------------------------------------
+
+// septol: 0 = empty, 1 = partial, 2 = full (from socket simulator)
+function formatSeptolLevel(value) {
+  if (value === null || value === undefined) return "—";
+  if (value === 0) return "Empty";
+  if (value === 1) return "Partial";
+  if (value === 2) return "Full";
+  return String(value);
+}
+
+// trash: 0–1 fraction (0 = empty, 1 = full) from socket simulator
+function formatBinLevel(value) {
+  if (value === null || value === undefined) return "—";
+  const pct = Math.round(Number(value) * 100);
+  if (Number.isNaN(pct)) return String(value);
+  return `${pct}%`;
+}
+
+// cartridge: 0–6 total loaded cartridge slots (socket simulator)
+function formatCartridgeLevel(value) {
+  if (value === null || value === undefined) return "—";
+  return `${value}/6`;
+}
+
+// delivery_available may be boolean OR derived from state
+function formatDelivery(rawValue, connected, cartridge) {
+  if (rawValue !== null && rawValue !== undefined) {
+    if (typeof rawValue === "boolean") return rawValue ? "Available" : "Not Available";
+    return String(rawValue);
+  }
+  // Derivation: available if connected AND has at least one cartridge
+  if (connected === true && cartridge !== null && cartridge !== undefined && Number(cartridge) > 0) {
+    return "Available";
+  }
+  if (connected === false) return "Not Available";
+  return "—";
+}
+
+function formatBoolField(value) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (value === 1 || value === "true" || value === "1" || value === "yes") return "Yes";
+  if (value === 0 || value === "false" || value === "0" || value === "no") return "No";
+  return String(value);
+}
+
+// Return first non-null/non-empty string value from an array of candidates
+function firstStrVal(values) {
+  for (const v of values) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+// Return first defined (non-undefined, non-null) value from an array
+function firstDefinedVal(values) {
+  for (const v of values) {
+    if (v !== undefined && v !== null) return v;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -520,13 +925,23 @@ function renderMetrics(containerId, items) {
   });
 }
 
-function renderLegend(containerId, breakdown, palette) {
+// onItemClick: optional callback(key) — makes the legend rows clickable
+function renderLegend(containerId, breakdown, palette, onItemClick = null) {
   const container = document.getElementById(containerId);
   container.innerHTML = "";
 
   breakdown.forEach((item) => {
     const row = document.createElement("div");
     row.className = "legend-row";
+
+    if (onItemClick) {
+      row.classList.add("legend-row--clickable");
+      if (item.key === state.connectionFilter) {
+        row.classList.add("legend-row--active");
+      }
+      row.title = `Click to filter machines by ${item.label}`;
+      row.addEventListener("click", () => onItemClick(item.key));
+    }
 
     const left = document.createElement("div");
     left.className = "legend-left";
@@ -560,7 +975,8 @@ function renderLegend(containerId, breakdown, palette) {
   });
 }
 
-function upsertChart(canvasId, paletteKey, breakdown, total, label) {
+// onSegmentClick: optional callback(key) — called when a doughnut segment is clicked
+function upsertChart(canvasId, paletteKey, breakdown, total, label, onSegmentClick = null) {
   if (!window.Chart) return;
 
   const canvas = document.getElementById(canvasId);
@@ -570,6 +986,36 @@ function upsertChart(canvasId, paletteKey, breakdown, total, label) {
   const colors = breakdown.map((item) => palette[item.key] || "#94a3b8");
 
   if (!state.charts[canvasId]) {
+    const chartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "72%",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              const value = context.parsed || 0;
+              const totalValue = context.dataset.data.reduce((sum, item) => sum + item, 0);
+              const percentage = totalValue ? ((value / totalValue) * 100).toFixed(1) : "0.0";
+              return `${context.label}: ${formatNumber(value)} (${percentage}%)`;
+            },
+          },
+        },
+        centerText: { value: formatNumber(total), label },
+      },
+    };
+
+    if (onSegmentClick) {
+      chartOptions.onClick = (_event, activeElements) => {
+        if (activeElements && activeElements.length > 0) {
+          const idx = activeElements[0].index;
+          const item = breakdown[idx];
+          if (item) onSegmentClick(item.key);
+        }
+      };
+    }
+
     state.charts[canvasId] = new window.Chart(canvas, {
       type: "doughnut",
       data: {
@@ -582,25 +1028,7 @@ function upsertChart(canvasId, paletteKey, breakdown, total, label) {
           hoverOffset: 6,
         }],
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: "72%",
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label(context) {
-                const value = context.parsed || 0;
-                const totalValue = context.dataset.data.reduce((sum, item) => sum + item, 0);
-                const percentage = totalValue ? ((value / totalValue) * 100).toFixed(1) : "0.0";
-                return `${context.label}: ${formatNumber(value)} (${percentage}%)`;
-              },
-            },
-          },
-          centerText: { value: formatNumber(total), label },
-        },
-      },
+      options: chartOptions,
     });
     return;
   }
@@ -612,57 +1040,6 @@ function upsertChart(canvasId, paletteKey, breakdown, total, label) {
   chart.options.plugins.centerText.value = formatNumber(total);
   chart.options.plugins.centerText.label = label;
   chart.update();
-}
-
-function renderOfflineTable(offlineDevices) {
-  const body = document.getElementById("offlineTableBody");
-  const empty = document.getElementById("offlineEmpty");
-  body.innerHTML = "";
-
-  document.getElementById("offlineCount").textContent = formatNumber(offlineDevices.total);
-
-  if (!offlineDevices.items || offlineDevices.items.length === 0) {
-    empty.classList.remove("hidden");
-    return;
-  }
-
-  empty.classList.add("hidden");
-  offlineDevices.items.forEach((device) => {
-    const row = document.createElement("tr");
-    row.appendChild(buildTextCell(device.id, "device-id"));
-    row.appendChild(buildTextCell(formatNullableDateTime(device.lastConnectedAt)));
-    row.appendChild(buildStatusCell(device.connectionStatus));
-    body.appendChild(row);
-  });
-}
-
-function renderSanitizerTable(sanitizer) {
-  const body = document.getElementById("sanitizerTableBody");
-  const empty = document.getElementById("sanitizerEmpty");
-  body.innerHTML = "";
-
-  document.getElementById("sanitizerCount").textContent = formatNumber(sanitizer.total);
-
-  if (!sanitizer.devices || sanitizer.devices.length === 0) {
-    empty.classList.remove("hidden");
-    return;
-  }
-
-  empty.classList.add("hidden");
-  sanitizer.devices.forEach((device) => {
-    const row = document.createElement("tr");
-    const idCell = buildTextCell(device.id, "device-id");
-    const statusCell = document.createElement("td");
-    const statusBadge = buildStatusBadge(device.status);
-    const rawValue = document.createElement("div");
-    rawValue.className = "muted-copy";
-    rawValue.textContent = `Value: ${formatRawValue(device.value)}`;
-    statusCell.appendChild(statusBadge);
-    statusCell.appendChild(rawValue);
-    row.appendChild(idCell);
-    row.appendChild(statusCell);
-    body.appendChild(row);
-  });
 }
 
 function buildTextCell(value, className = "") {
@@ -691,11 +1068,12 @@ function buildStatusBadge(label) {
 }
 
 function statusClassName(label) {
-  const normalized = String(label || "").toLowerCase();
+  const normalized = String(label || "").toLowerCase().replace(/[\s_-]/g, "");
   if (normalized === "connected") return "status-connected";
   if (normalized === "disconnected") return "status-disconnected";
   if (normalized === "available") return "status-available";
   if (normalized === "unavailable") return "status-unavailable";
+  if (normalized === "operational") return "status-operational";
   return "status-unknown";
 }
 
@@ -815,7 +1193,7 @@ async function loginRequest(username, password) {
       throw new Error(resolveErrorMessage(payload) || "Login failed. Please check your credentials.");
     }
 
-    return payload.data; // { accessToken, refreshToken, userId }
+    return payload.data;
   } catch (error) {
     if (error.name === "AbortError") throw new Error("Login request timed out. Please try again.");
     throw error;
@@ -847,7 +1225,7 @@ async function refreshTokenRequest(refreshToken) {
     throw new Error(resolveErrorMessage(payload) || "Token refresh failed.");
   }
 
-  return payload.data; // { accessToken, refreshToken }
+  return payload.data;
 }
 
 async function performTokenRefresh() {
@@ -938,7 +1316,6 @@ function hideDashboardError() {
 // Date / time helpers
 // ---------------------------------------------------------------------------
 
-// Convert a Date object to dd/mm/yy display string
 function toDisplayDate(date) {
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -946,7 +1323,6 @@ function toDisplayDate(date) {
   return `${day}/${month}/${year}`;
 }
 
-// Parse dd/mm/yy to YYYY-MM-DD; returns null on invalid input
 function parseDisplayDate(ddmmyy) {
   const parts = ddmmyy.trim().split("/");
   if (parts.length !== 3) return null;
@@ -965,7 +1341,6 @@ function setDefaultDates() {
 
   document.getElementById("fromDate").value = toDisplayDate(fromDate);
   document.getElementById("toDate").value = toDisplayDate(toDate);
-  // Time defaults are set via HTML value attributes (00:00 / 23:59)
 }
 
 function buildDateRangePayload() {
@@ -991,9 +1366,12 @@ function buildDateRangePayload() {
     return { ok: false, error: "The start date must be on or before the end date." };
   }
 
-  // Build full ISO timestamps including user-selected time.
-  // new Date("YYYY-MM-DDTHH:MM:ss") interprets as LOCAL time and converts
-  // to UTC via .toISOString(), which is the correct behavior for BIOT filtering.
+  // Time filtering note:
+  // new Date("YYYY-MM-DDTHH:MM:ss") interprets as LOCAL time and converts to UTC
+  // via .toISOString(). This is the intended behavior — users enter their local
+  // clock time, and we convert to UTC for BIOT's _creationTime filter.
+  // Time filtering ONLY applies to glove consumption events (device_event endpoint).
+  // Device connection status and sanitizer status are current-state, not time-filtered.
   const fromIso = new Date(`${from}T${fromTime}:00`).toISOString();
   const toIso = new Date(`${to}T${toTime}:59.999`).toISOString();
 

@@ -12,8 +12,8 @@
     };
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="./dashboard.css?v=20260428-4" />
-  <script src="./dashboard.js?v=20260428-4" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260428-5" />
+  <script src="./dashboard.js?v=20260428-5" defer></script>
 </head>
 <body>
 
@@ -160,8 +160,8 @@
 
       </section>
 
-      <!-- Machines table (filterable) + Sanitizer table -->
-      <section class="table-grid">
+      <!-- Machines table (filterable) -->
+      <section id="machinesTableSection" class="table-grid">
         <article class="card table-card">
           <div class="card-header">
             <div class="table-title-row">
@@ -172,6 +172,10 @@
               </div>
             </div>
             <div id="machinesCount" class="count-badge">0</div>
+          </div>
+
+          <div class="table-search-row">
+            <input id="machineSearch" type="search" placeholder="Search by machine ID…" class="table-search-input" autocomplete="off" />
           </div>
 
           <div class="table-wrap">
@@ -192,34 +196,11 @@
           </div>
         </article>
 
-        <article class="card table-card">
-          <div class="card-header">
-            <div>
-              <h3>Sanitizer Devices</h3>
-            </div>
-            <div id="sanitizerCount" class="count-badge">0</div>
-          </div>
-
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Sanitizer Status</th>
-                </tr>
-              </thead>
-              <tbody id="sanitizerTableBody"></tbody>
-            </table>
-          </div>
-
-          <div id="sanitizerEmpty" class="empty-state hidden">
-            No sanitizer devices found.
-          </div>
-        </article>
       </section>
 
-      <!-- Device detail panel — appears when a machine row is clicked -->
-      <section id="deviceDetailPanel" class="card detail-panel hidden">
+      <!-- Device detail modal — appears when a machine row is clicked -->
+      <div id="deviceDetailModal" class="modal-overlay hidden">
+      <section id="deviceDetailPanel" class="card detail-panel modal-panel">
         <div class="detail-panel-header">
           <div>
             <div class="eyebrow">Machine Details</div>
@@ -351,6 +332,7 @@
         </div>
 
       </section>
+      </div><!-- /deviceDetailModal -->
 
     </main>
   </div>

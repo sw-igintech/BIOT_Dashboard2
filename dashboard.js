@@ -66,8 +66,10 @@ const state = {
   // "disconnected" is the default (same as prior "Offline Devices" behavior).
   // Set to "connected" when the user clicks the Connected legend or chip.
   connectionFilter: "disconnected",
-  // selectedDeviceId: tracks the currently opened device detail panel.
+  // selectedDeviceId: tracks the currently opened device detail modal.
   selectedDeviceId: null,
+  // machineSearch: live partial-match search term for machine IDs.
+  machineSearch: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -177,6 +179,24 @@ function wireUi() {
   document.getElementById("loginForm").addEventListener("submit", handleLoginFormSubmit);
   document.getElementById("logoutBtn").addEventListener("click", handleLogout);
   document.getElementById("closeDetailBtn").addEventListener("click", closeDeviceDetail);
+
+  // Machine search — live filter as user types
+  document.getElementById("machineSearch").addEventListener("input", (e) => {
+    state.machineSearch = e.target.value.trim().toLowerCase();
+    if (state.summary) renderMachinesTable(state.summary);
+  });
+
+  // Modal: close on backdrop click (click outside the panel card)
+  document.getElementById("deviceDetailModal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("deviceDetailModal")) closeDeviceDetail();
+  });
+
+  // Modal: close on Escape key
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("deviceDetailModal").classList.contains("hidden")) {
+      closeDeviceDetail();
+    }
+  });
 
   // Show/Hide password toggle
   document.getElementById("togglePassword").addEventListener("click", () => {
@@ -407,9 +427,9 @@ function renderSummary(summary) {
   renderMetrics("gloveMetrics", [
     { label: "Total Events", value: summary.gloves.total },
     { label: "Small", value: summary.gloves.counts.small },
-    { label: "Medium", value: summary.gloves.counts.medium },
-    { label: "Large", value: summary.gloves.counts.large },
-    { label: "Extra Large", value: summary.gloves.counts.extraLarge },
+    { label: "Medium", value: summary.gloves.counts.medium, cls: "metric-tile--sm" },
+    { label: "Large", value: summary.gloves.counts.large, cls: "metric-tile--sm" },
+    { label: "Extra Large", value: summary.gloves.counts.extraLarge, cls: "metric-tile--sm" },
   ]);
 
   // Sanitizer: keep Unknown fully visible
@@ -444,7 +464,6 @@ function renderSummary(summary) {
   upsertChart("operationalChart", "operational", summary.operational.breakdown, summary.operational.total, "Devices");
 
   renderMachinesTable(summary);
-  renderSanitizerTable(summary.sanitizer);
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +486,10 @@ function setConnectionFilter(key) {
       setConnectionFilter(k);
     });
     renderMachinesTable(state.summary);
+
+    // Scroll down to the machines table so the user sees the filtered results
+    const tableSection = document.getElementById("machinesTableSection");
+    if (tableSection) tableSection.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -582,8 +605,13 @@ function toSafeNumber(value) {
 
 function renderMachinesTable(summary) {
   const filter = state.connectionFilter;
+  const searchTerm = state.machineSearch;
   const allItems = summary.devices ? summary.devices.items : [];
-  const filteredItems = allItems.filter((d) => d.connectionStatusKey === filter);
+  const filteredItems = allItems.filter((d) => {
+    if (d.connectionStatusKey !== filter) return false;
+    if (searchTerm && !d.id.toLowerCase().includes(searchTerm)) return false;
+    return true;
+  });
 
   // Update title and count badge
   const titleMap = { connected: "Connected Machines", disconnected: "Disconnected Machines" };
@@ -679,15 +707,15 @@ function openDeviceDetail(device, viewer) {
   // Populate Settings tab (async — fetches separate settings entity from Edge Function)
   populateSettingsTab(device).catch(() => { /* error shown inside populateSettingsTab */ });
 
-  // Show panel
-  const panel = document.getElementById("deviceDetailPanel");
-  panel.classList.remove("hidden");
-  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  // Show modal
+  document.getElementById("deviceDetailModal").classList.remove("hidden");
+  document.body.classList.add("modal-open");
 }
 
 function closeDeviceDetail() {
   state.selectedDeviceId = null;
-  document.getElementById("deviceDetailPanel").classList.add("hidden");
+  document.getElementById("deviceDetailModal").classList.add("hidden");
+  document.body.classList.remove("modal-open");
   document.querySelectorAll(".clickable-row--selected").forEach((row) => {
     row.classList.remove("clickable-row--selected");
   });
@@ -881,7 +909,7 @@ function renderMetrics(containerId, items) {
 
   items.forEach((item) => {
     const tile = document.createElement("div");
-    tile.className = "metric-tile";
+    tile.className = item.cls ? `metric-tile ${item.cls}` : "metric-tile";
 
     const label = document.createElement("div");
     label.className = "metric-label";

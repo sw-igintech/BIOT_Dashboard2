@@ -129,7 +129,12 @@ const auth = {
 
 const centerTextPlugin = {
   id: "centerText",
-  afterDraw(chart, args, pluginOptions) {
+  // Use afterTooltipDraw (not afterDraw) so the center text is painted AFTER
+  // the tooltip box. In Chart.js 4 the tooltip renders after afterDraw, which
+  // means an afterDraw-based plugin gets covered by the tooltip when they
+  // overlap. afterTooltipDraw fires after the tooltip is painted, keeping the
+  // center value visible even when a wide tooltip box extends inward.
+  afterTooltipDraw(chart, args, pluginOptions) {
     if (!pluginOptions || !chart.chartArea) {
       return;
     }

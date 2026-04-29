@@ -12,8 +12,8 @@
     };
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="./dashboard.css?v=20260428-5" />
-  <script src="./dashboard.js?v=20260428-5" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260429-1" />
+  <script src="./dashboard.js?v=20260429-1" defer></script>
 </head>
 <body>
 
@@ -107,7 +107,6 @@
         <article class="card chart-card">
           <div class="card-header simple-card-header">
             <h3>Device Connection Status</h3>
-            <div class="card-header-hint">Click legend to filter machines</div>
           </div>
           <div id="connectionMetrics" class="metric-grid"></div>
           <div class="chart-layout">
@@ -129,6 +128,7 @@
             </div>
             <div id="gloveLegend" class="legend"></div>
           </div>
+          <div id="gloveTip" class="glove-tip hidden"></div>
         </article>
 
         <article class="card chart-card">
@@ -167,6 +167,7 @@
             <div class="table-title-row">
               <h3 id="machinesTableTitle">Disconnected Machines</h3>
               <div class="connection-filter-chips">
+                <button class="filter-chip" data-filter="all" type="button">All</button>
                 <button class="filter-chip filter-chip--active" data-filter="disconnected" type="button">Disconnected</button>
                 <button class="filter-chip" data-filter="connected" type="button">Connected</button>
               </div>

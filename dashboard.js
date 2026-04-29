@@ -452,6 +452,7 @@ function renderSummary(summary) {
     setConnectionFilter(key);
   });
   renderLegend("gloveLegend", gloveDisplayBreakdown, CHART_COLORS.gloves);
+  renderGloveHighlight(summary.gloves.counts);
   renderLegend("sanitizerLegend", summary.sanitizer.breakdown, CHART_COLORS.sanitizer);
   renderLegend("operationalLegend", summary.operational.breakdown, CHART_COLORS.operational);
 
@@ -467,11 +468,61 @@ function renderSummary(summary) {
 }
 
 // ---------------------------------------------------------------------------
+// Glove highlight — HIGH DEMAND badge + PRO TIP
+// ---------------------------------------------------------------------------
+
+// Ordered list of glove size keys. Used to determine display order and
+// tie-breaking: when two sizes share the same count, the one that appears
+// first in this list (i.e. the smaller size) is chosen.
+const GLOVE_SIZE_KEYS = ["small", "medium", "large", "extraLarge"];
+const GLOVE_SIZE_LABELS = { small: "Small", medium: "Medium", large: "Large", extraLarge: "Extra Large" };
+
+function renderGloveHighlight(counts) {
+  // Find top glove size by highest count; tie → first in GLOVE_SIZE_KEYS order
+  let topKey = null;
+  let topValue = -1;
+  GLOVE_SIZE_KEYS.forEach((key) => {
+    const val = typeof counts[key] === "number" ? counts[key] : 0;
+    if (val > topValue) {
+      topValue = val;
+      topKey = key;
+    }
+  });
+
+  // Apply HIGH DEMAND badge to the matching legend row
+  const legend = document.getElementById("gloveLegend");
+  if (legend) {
+    legend.querySelectorAll("[data-legend-key]").forEach((row) => {
+      row.querySelectorAll(".high-demand-badge").forEach((b) => b.remove());
+      if (topKey !== null && topValue > 0 && row.dataset.legendKey === topKey) {
+        const badge = document.createElement("span");
+        badge.className = "high-demand-badge";
+        badge.textContent = "HIGH DEMAND";
+        row.appendChild(badge);
+      }
+    });
+  }
+
+  // Update PRO TIP row
+  const tipEl = document.getElementById("gloveTip");
+  if (tipEl) {
+    if (topKey !== null && topValue > 0) {
+      const label = GLOVE_SIZE_LABELS[topKey] || topKey;
+      tipEl.textContent =
+        `Pro tip: Based on consumption trends, we recommend increasing stock of ${label} gloves.`;
+      tipEl.classList.remove("hidden");
+    } else {
+      tipEl.classList.add("hidden");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Connection filter (machines table)
 // ---------------------------------------------------------------------------
 
 function setConnectionFilter(key) {
-  if (!["connected", "disconnected"].includes(key)) return;
+  if (!["all", "connected", "disconnected"].includes(key)) return;
   state.connectionFilter = key;
 
   // Update filter chip active state
@@ -608,13 +659,13 @@ function renderMachinesTable(summary) {
   const searchTerm = state.machineSearch;
   const allItems = summary.devices ? summary.devices.items : [];
   const filteredItems = allItems.filter((d) => {
-    if (d.connectionStatusKey !== filter) return false;
+    if (filter !== "all" && d.connectionStatusKey !== filter) return false;
     if (searchTerm && !d.id.toLowerCase().includes(searchTerm)) return false;
     return true;
   });
 
   // Update title and count badge
-  const titleMap = { connected: "Connected Machines", disconnected: "Disconnected Machines" };
+  const titleMap = { all: "All Machines", connected: "Connected Machines", disconnected: "Disconnected Machines" };
   document.getElementById("machinesTableTitle").textContent = titleMap[filter] || "Machines";
   document.getElementById("machinesCount").textContent = formatNumber(filteredItems.length);
 
@@ -933,6 +984,7 @@ function renderLegend(containerId, breakdown, palette, onItemClick = null) {
   breakdown.forEach((item) => {
     const row = document.createElement("div");
     row.className = "legend-row";
+    row.dataset.legendKey = item.key;
 
     if (onItemClick) {
       row.classList.add("legend-row--clickable");

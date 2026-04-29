@@ -706,6 +706,38 @@ tbody tr:last-child td
 }
 
 /* ---------------------------------------------------------------------------
+   Glove chart — HIGH DEMAND badge + PRO TIP
+--------------------------------------------------------------------------- */
+
+.high-demand-badge
+{
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: #f97316;
+  flex-shrink: 0;
+}
+
+.glove-tip
+{
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(249, 115, 22, 0.18);
+  background: rgba(255, 247, 237, 0.9);
+  font-size: 0.80rem;
+  color: #92400e;
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------------------------------------
    Machine search row (inside machines table card)
 --------------------------------------------------------------------------- */
 

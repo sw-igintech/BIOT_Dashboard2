@@ -17,7 +17,7 @@ Supabase Edge Function  /functions/v1/biot-dashboard
     │
     │  server-side HTTP — forwards the user's own token to BIOT
     ▼
-BIOT API  (api.dev.igin.biot-med.com)
+BIOT API
 ```
 
 BIOT is the **only** source of truth. Supabase is used purely as a server execution environment — no database, no caching.
@@ -36,7 +36,7 @@ curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_lin
   | tar -xz -C /usr/local/bin
 
 supabase login
-supabase link --project-ref qjkrkqyycujmjxbfthev
+supabase link --project-ref <your-project-ref>
 ```
 
 ### 2 — Set required secret
@@ -44,7 +44,7 @@ supabase link --project-ref qjkrkqyycujmjxbfthev
 Only one secret is needed at runtime:
 
 ```bash
-supabase secrets set BIOT_BASE_URL=https://api.dev.igin.biot-med.com
+supabase secrets set BIOT_BASE_URL=<your-biot-base-url>
 ```
 
 `BIOT_USERNAME` and `BIOT_PASSWORD` are **not** used by the Edge Function. The dashboard authenticates each user directly with their own BIOT credentials.
@@ -52,7 +52,7 @@ supabase secrets set BIOT_BASE_URL=https://api.dev.igin.biot-med.com
 ### 3 — Deploy the Edge Function
 
 ```bash
-npx supabase functions deploy biot-dashboard --project-ref qjkrkqyycujmjxbfthev
+npx supabase functions deploy biot-dashboard --project-ref <your-project-ref>
 ```
 
 `verify_jwt = false` is set in `supabase/config.toml` — the endpoint is intentionally public (authenticated by the user's own BIOT token, not a Supabase JWT).
@@ -108,7 +108,7 @@ supabase functions serve biot-dashboard --env-file .env.local
 
 Where `.env.local` (not committed) contains:
 ```
-BIOT_BASE_URL=https://api.dev.igin.biot-med.com
+BIOT_BASE_URL=<your-biot-base-url>
 ```
 
 Then temporarily change `supabaseEdgeUrl` in `index.html` to `http://localhost:54321/functions/v1/biot-dashboard`.

@@ -8,8 +8,10 @@ Static frontend on **GitHub Pages** backed by a **Supabase Edge Function** that 
 Browser (GitHub Pages)
     │
     │  fetch() — plain HTTPS
-    │  POST { action: "login" }   user logs in with their own BIOT credentials
+    │  POST { action: "login" }    user logs in with their own BIOT credentials
+    │  POST { action: "refresh" }  token refresh on 401
     │  GET  ?action=dashboard  +  x-biot-token: <user's BIOT access JWT>
+    │  GET  ?action=entity&id=<uuid>  +  x-biot-token   (device settings fetch)
     ▼
 Supabase Edge Function  /functions/v1/biot-dashboard
     │
@@ -39,15 +41,21 @@ supabase link --project-ref qjkrkqyycujmjxbfthev
 
 ### 2 — Set required secret
 
+Only one secret is needed at runtime:
+
 ```bash
 supabase secrets set BIOT_BASE_URL=https://api.dev.igin.biot-med.com
 ```
+
+`BIOT_USERNAME` and `BIOT_PASSWORD` are **not** used by the Edge Function. The dashboard authenticates each user directly with their own BIOT credentials.
 
 ### 3 — Deploy the Edge Function
 
 ```bash
 npx supabase functions deploy biot-dashboard --project-ref qjkrkqyycujmjxbfthev
 ```
+
+`verify_jwt = false` is set in `supabase/config.toml` — the endpoint is intentionally public (authenticated by the user's own BIOT token, not a Supabase JWT).
 
 ### 4 — Push the frontend
 
@@ -70,6 +78,13 @@ GitHub Pages serves `index.html` / `dashboard.js` / `dashboard.css` directly fro
 | Device detail — Status | `_status.*` fields (connectivity, bin level, glove counts) |
 | Device detail — Settings | `GET /generic-entity/v1/generic-entities/{current_settings2.id}` |
 
+### UI behavior
+
+- **Machine table filter:** All / Disconnected (default) / Connected chips. Clicking a doughnut segment or legend row also sets the filter and scrolls to the table.
+- **Machine search:** Live partial-match field in the table header — filters by device ID as the user types.
+- **Device detail:** Opens as a centered modal on row click. Two tabs: Status (from device `_status` fields) and Settings (async-fetched via the `entity` action). Closes on backdrop click or Escape.
+- **Glove chart:** Legend shows a HIGH DEMAND badge on the highest-consumption size. A PRO TIP row below the chart recommends stocking the top size.
+
 ---
 
 ## Key files
@@ -80,7 +95,7 @@ GitHub Pages serves `index.html` / `dashboard.js` / `dashboard.css` directly fro
 | `dashboard.js` | All rendering + API fetch logic |
 | `dashboard.css` | Visual styles |
 | `supabase/functions/biot-dashboard/index.ts` | Edge Function — BIOT proxy |
-| `supabase/config.toml` | Supabase project config |
+| `supabase/config.toml` | Supabase project config (`verify_jwt = false`) |
 | `.env.example` | Template showing required secrets |
 
 ---

@@ -129,12 +129,7 @@ const auth = {
 
 const centerTextPlugin = {
   id: "centerText",
-  // Use afterTooltipDraw (not afterDraw) so the center text is painted AFTER
-  // the tooltip box. In Chart.js 4 the tooltip renders after afterDraw, which
-  // means an afterDraw-based plugin gets covered by the tooltip when they
-  // overlap. afterTooltipDraw fires after the tooltip is painted, keeping the
-  // center value visible even when a wide tooltip box extends inward.
-  afterTooltipDraw(chart, args, pluginOptions) {
+  afterDraw(chart, args, pluginOptions) {
     if (!pluginOptions || !chart.chartArea) {
       return;
     }
@@ -159,6 +154,14 @@ const centerTextPlugin = {
 
 if (window.Chart) {
   window.Chart.register(centerTextPlugin);
+  // Positioner that places the tooltip at the cursor rather than the arc's
+  // geometric center — used only by the Operational chart to prevent the wide
+  // "Non-Operational" tooltip box from overlapping the center number.
+  if (window.Chart.Tooltip && window.Chart.Tooltip.positioners) {
+    window.Chart.Tooltip.positioners.cursor = function(_, eventPosition) {
+      return eventPosition;
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,6 +1074,11 @@ function upsertChart(canvasId, paletteKey, breakdown, total, label, onSegmentCli
           if (item) onSegmentClick(item.key);
         }
       };
+    }
+
+    // Operational chart only: tooltip follows cursor so it never covers center text
+    if (canvasId === "operationalChart") {
+      chartOptions.plugins.tooltip.position = "cursor";
     }
 
     state.charts[canvasId] = new window.Chart(canvas, {

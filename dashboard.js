@@ -215,21 +215,6 @@ function wireUi() {
     btn.textContent = showing ? "Show" : "Hide";
   });
 
-  // Auto-format date inputs as user types (dd/mm/yy)
-  ["fromDate", "toDate"].forEach((id) => {
-    document.getElementById(id).addEventListener("input", (e) => {
-      let digits = e.target.value.replace(/\D/g, "");
-      if (digits.length > 6) digits = digits.slice(0, 6);
-      let formatted = digits;
-      if (digits.length > 4) {
-        formatted = digits.slice(0, 2) + "/" + digits.slice(2, 4) + "/" + digits.slice(4);
-      } else if (digits.length > 2) {
-        formatted = digits.slice(0, 2) + "/" + digits.slice(2);
-      }
-      e.target.value = formatted;
-    });
-  });
-
   // Connection filter chips (Disconnected / Connected buttons in table header)
   document.querySelectorAll(".filter-chip").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1381,22 +1366,11 @@ function hideDashboardError() {
 // Date / time helpers
 // ---------------------------------------------------------------------------
 
-function toDisplayDate(date) {
-  const day = String(date.getDate()).padStart(2, "0");
+function toIsoDateString(date) {
+  const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = String(date.getFullYear()).slice(2);
-  return `${day}/${month}/${year}`;
-}
-
-function parseDisplayDate(ddmmyy) {
-  const parts = ddmmyy.trim().split("/");
-  if (parts.length !== 3) return null;
-  const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const year = 2000 + parseInt(parts[2], 10);
-  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function setDefaultDates() {
@@ -1404,34 +1378,24 @@ function setDefaultDates() {
   const fromDate = new Date(toDate);
   fromDate.setDate(fromDate.getDate() - 13);
 
-  document.getElementById("fromDate").value = toDisplayDate(fromDate);
-  document.getElementById("toDate").value = toDisplayDate(toDate);
+  document.getElementById("fromDate").value = toIsoDateString(fromDate);
+  document.getElementById("toDate").value = toIsoDateString(toDate);
 }
 
 function buildDateRangePayload() {
-  const fromDisplay = document.getElementById("fromDate").value.trim();
-  const toDisplay = document.getElementById("toDate").value.trim();
+  const from = document.getElementById("fromDate").value.trim();
+  const to = document.getElementById("toDate").value.trim();
   const fromTime = document.getElementById("fromTime").value || "00:00";
   const toTime = document.getElementById("toTime").value || "23:59";
 
-  if (!fromDisplay || !toDisplay) {
+  if (!from || !to) {
     return { ok: false, error: "Select both a start date and an end date." };
   }
 
-  const from = parseDisplayDate(fromDisplay);
-  const to = parseDisplayDate(toDisplay);
-
-  if (!from) {
-    return { ok: false, error: `Invalid start date. Use dd/mm/yy format (e.g. ${toDisplayDate(new Date())}).` };
-  }
-  if (!to) {
-    return { ok: false, error: `Invalid end date. Use dd/mm/yy format (e.g. ${toDisplayDate(new Date())}).` };
-  }
   if (from > to) {
     return { ok: false, error: "The start date must be on or before the end date." };
   }
 
-  // Time filtering note:
   // new Date("YYYY-MM-DDTHH:MM:ss") interprets as LOCAL time and converts to UTC
   // via .toISOString(). This is the intended behavior — users enter their local
   // clock time, and we convert to UTC for BIOT's _creationTime filter.

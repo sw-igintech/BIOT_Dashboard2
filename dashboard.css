@@ -342,6 +342,7 @@ select:focus
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   margin-top: 0;
+  align-items: start;
 }
 
 .chart-card
@@ -1072,7 +1073,7 @@ body.modal-open
 .datetime-row
 {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -1221,4 +1222,43 @@ body.modal-open
   {
     min-width: 100px;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Flatpickr calendar — minimal theme overrides to match dashboard palette
+--------------------------------------------------------------------------- */
+
+.flatpickr-calendar
+{
+  font-family: var(--font);
+  font-size: 0.84rem;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius-md);
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected:focus
+{
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.flatpickr-day.today
+{
+  border-color: var(--primary);
+}
+
+.flatpickr-day.today:hover
+{
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months .flatpickr-next-month:hover svg
+{
+  fill: var(--primary);
 }

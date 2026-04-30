@@ -228,6 +228,20 @@ function wireUi() {
       switchDetailTab(tab.dataset.tab);
     });
   });
+
+  // Calendar date pickers — DD/MM/YY display; underlying value stays YYYY-MM-DD
+  // so buildDateRangePayload() is unchanged. altInput:true hides the original input
+  // (which retains the YYYY-MM-DD value) and shows a plain text sibling for display.
+  if (window.flatpickr) {
+    ["fromDate", "toDate"].forEach((id) => {
+      window.flatpickr(`#${id}`, {
+        dateFormat: "Y-m-d",
+        altInput: true,
+        altFormat: "d/m/y",
+        altInputClass: "date-input",
+      });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,7 +1361,7 @@ function setDashboardLoading(isLoading) {
   const refreshButton = document.getElementById("refreshBtn");
   loading.classList.toggle("hidden", !isLoading);
   refreshButton.disabled = isLoading;
-  refreshButton.textContent = isLoading ? "Refreshing..." : "Refresh";
+  refreshButton.textContent = isLoading ? "Applying..." : "Apply";
 }
 
 function showDashboardError(message) {

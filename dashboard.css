@@ -342,7 +342,7 @@ select:focus
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   margin-top: 0;
-  align-items: start;
+  align-items: stretch;
 }
 
 .chart-card
@@ -1080,7 +1080,7 @@ body.modal-open
 .datetime-row .date-input
 {
   flex: 1 1 0;
-  min-width: 130px;
+  min-width: 90px;
 }
 
 .datetime-row .time-input

@@ -609,30 +609,38 @@ function getSanitizerSummary(devices: NormalizedDevice[]): Record<string, unknow
 // Device normalization
 // ---------------------------------------------------------------------------
 
-// New scope model:
+// Scope model:
 //  kind="all"           — no device filter applied
-//  kind="organization"  — match device._ownerOrganization.id === scope.id
-//                         (or, for child-org expansion, ∈ scope.organizationIds)
+//  kind="organization"  — match device._ownerOrganization.id ∈ scope.organizationIds
 //  kind="distributor"   — match (device.device_distributor.id === scope.id)
 //                         OR (device._ownerOrganization.id ∈ scope.organizationIds)
-//                         The OR is what implements the "see all machines under me"
-//                         rule: case 1 (per-device link) and case 2 (via child org).
+//                         The OR implements the "see all machines under me" rule:
+//                         case 1 (per-device link) and case 2 (via child org).
+//
+// Organization-role users (anything that is not a manufacturer) are NEVER filtered
+// client-side regardless of scope kind: BIOT's ABAC already returned exactly the
+// device set that user is permitted to see. Verified live 2026-05-19 with the D1
+// distributor user (stamshemyafe@gmail.com, ownerOrganizationId=00000000-..., groups=[]):
+// BIOT returns 4 devices spanning two owner orgs (igin and EC1). Applying the
+// previous _ownerOrganization.id filter against viewer.ownerOrganizationId
+// (00000000-...) dropped the EC1-owned devices — case 2 was broken for real
+// distributor users. Trusting BIOT here is also correct for ordinary org-only
+// users: BIOT returns only their org's devices, so the filter is a no-op for them.
 function deviceMatchesScope(device: unknown, scope: ResolvedScope, viewer: Viewer): boolean {
+  if (viewer.role === "organization") return true;
+
   const ownerOrgId = firstNonEmpty([
     nestedGet(device, ["_ownerOrganization", "id"]),
     nestedGet(device, ["ownerOrganization", "id"]),
   ]) as string | null;
   const distId = nestedGet(device, ["device_distributor", "id"]) as string | null;
 
-  if (scope.kind === "all") {
-    if (viewer.role === "organization" && viewer.ownerOrganizationId) return ownerOrgId === viewer.ownerOrganizationId;
-    return true;
-  }
+  if (scope.kind === "all") return true;
   if (scope.kind === "distributor") {
     if (distId && distId === scope.id) return true;
     return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
   }
-  // organization scope
+  // explicit organization selection (manufacturer scope dropdown)
   return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
 }
 

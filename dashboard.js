@@ -392,8 +392,10 @@ async function refreshDashboard() {
 
 function renderOrganizationSelector(summary) {
   const field = document.getElementById("organizationField");
+  const label = document.getElementById("organizationFieldLabel");
   const select = document.getElementById("organizationSelect");
   const organizations = Array.isArray(summary.organizations) ? summary.organizations : [];
+  const distributors = Array.isArray(summary.distributors) ? summary.distributors : [];
 
   if (!summary.viewer || summary.viewer.role !== "manufacturer") {
     field.classList.add("hidden");
@@ -401,8 +403,11 @@ function renderOrganizationSelector(summary) {
     return;
   }
 
+  // The Edge Function echoes the encoded scope token ("all" | "org:<id>" | "dist:<id>").
+  // We default to "all" if nothing has been chosen yet.
   const selectedValue = summary.scope.organizationId || "all";
   field.classList.remove("hidden");
+  if (label) label.textContent = "Scope";
   select.innerHTML = "";
 
   const allOption = document.createElement("option");
@@ -410,12 +415,29 @@ function renderOrganizationSelector(summary) {
   allOption.textContent = "All organizations";
   select.appendChild(allOption);
 
-  organizations.forEach((organization) => {
-    const option = document.createElement("option");
-    option.value = organization.id;
-    option.textContent = organization.name || organization.id;
-    select.appendChild(option);
-  });
+  if (distributors.length) {
+    const distGroup = document.createElement("optgroup");
+    distGroup.label = "Distributors";
+    distributors.forEach((d) => {
+      const option = document.createElement("option");
+      option.value = `dist:${d.id}`;
+      option.textContent = d.name || d.id;
+      distGroup.appendChild(option);
+    });
+    select.appendChild(distGroup);
+  }
+
+  if (organizations.length) {
+    const orgGroup = document.createElement("optgroup");
+    orgGroup.label = "Organizations";
+    organizations.forEach((o) => {
+      const option = document.createElement("option");
+      option.value = `org:${o.id}`;
+      option.textContent = o.name || o.id;
+      orgGroup.appendChild(option);
+    });
+    select.appendChild(orgGroup);
+  }
 
   select.value = selectedValue;
 }
@@ -561,6 +583,9 @@ function normalizeDashboardSummary(summary) {
     organizations: Array.isArray(source.organizations)
       ? source.organizations.filter((o) => o && typeof o === "object")
       : [],
+    distributors: Array.isArray(source.distributors)
+      ? source.distributors.filter((d) => d && typeof d === "object")
+      : [],
     connection: normalizeChartSection(source.connection, CONNECTION_BREAKDOWN),
     // All devices — replaces the old offlineDevices (disconnected-only) structure
     devices: normalizeDevices(source.devices),
@@ -581,6 +606,7 @@ function normalizeDeviceItem(device) {
   if (!device) {
     return {
       id: "Unknown", organizationId: null, organizationName: null,
+      distributorId: null, distributorName: null,
       connected: null, connectionStatus: "Unknown", connectionStatusKey: "unknown",
       lastConnectedAt: null, sanitizerStatus: "Unknown", sanitizerStatusKey: "unknown",
       rawStatus: {}, customFields: {},
@@ -590,6 +616,8 @@ function normalizeDeviceItem(device) {
     id: device.id ? String(device.id) : "Unknown",
     organizationId: device.organizationId || null,
     organizationName: device.organizationName || null,
+    distributorId: device.distributorId || null,
+    distributorName: device.distributorName || null,
     connected: device.connected !== undefined ? device.connected : null,
     connectionStatus: device.connectionStatus ? String(device.connectionStatus) : "Unknown",
     connectionStatusKey: device.connectionStatusKey ? String(device.connectionStatusKey) : "unknown",
@@ -850,10 +878,18 @@ function populateStatusTab(device, viewer) {
     endUserRow.classList.add("hidden");
   }
 
-  // Distributor: not embedded in device data — separate generic entity type in BIOT.
-  // Showing hidden for now; would require an additional entity query not yet implemented.
+  // Distributor: sourced from device.device_distributor on the BIOT device payload.
+  // Edge Function surfaces it as device.distributorId/distributorName.
+  // Manufacturer view only — org users always see their own org's devices and the
+  // distributor column adds no useful information.
   const distributorRow = document.getElementById("detailDistributorRow");
-  distributorRow.classList.add("hidden");
+  if (isManufacturer && device.distributorName) {
+    distributorRow.classList.remove("hidden");
+    document.getElementById("detailDistributor").textContent =
+      device.distributorName || device.distributorId || "—";
+  } else {
+    distributorRow.classList.add("hidden");
+  }
 }
 
 async function populateSettingsTab(device) {

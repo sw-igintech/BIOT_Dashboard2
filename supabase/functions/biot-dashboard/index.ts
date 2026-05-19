@@ -72,10 +72,21 @@ interface Organization {
   name: string;
 }
 
+interface Distributor {
+  id: string;
+  name: string;
+}
+
 interface NormalizedDevice {
   id: string;
   organizationId: string | null;
   organizationName: string | null;
+  // Distributor link (confirmed live 2026-05-19): device.device_distributor is a reference
+  // object { id, name, templateName: "distributor" }. Null when the device has no
+  // distributor assigned. Drives distributor-scope filtering and the Distributor row
+  // in the device detail panel.
+  distributorId: string | null;
+  distributorName: string | null;
   connected: boolean | null;
   connectionStatus: string;
   connectionStatusKey: string;
@@ -269,23 +280,46 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
   // User supplies their own accessToken — no server-side login needed
   const selfPayload = await getCurrentUser(config, accessToken);
   const viewer = buildViewerIdentity({}, selfPayload);
-  const rawDevices = await getDevices(config, accessToken);
+  // Parallelise the three independent BIOT calls. Distributors and bridge entities
+  // are only meaningful for manufacturer accounts (org-role users are locked to
+  // their own org id and can't pick a distributor) but the cost is small and the
+  // simpler control flow is worth the few extra round-trips.
+  const [rawDevices, rawDistributors, rawBridges] = await Promise.all([
+    getDevices(config, accessToken),
+    safeWidget(() => getDistributors(config, accessToken), [] as unknown[], () => {}),
+    safeWidget(() => getOrgDistributorBridges(config, accessToken), [] as unknown[], () => {}),
+  ]);
   const organizations = deriveOrganizations(viewer, selfPayload, rawDevices);
-  const scope = resolveScope(viewer, organizations, params.organizationId);
+  const distributors = normalizeDistributors(rawDistributors);
+  // distributor id → list of child org ids (from organization_to_distributor bridges)
+  const distributorToOrgIds = buildDistributorToOrgsMap(rawBridges);
+  const scope = resolveScope(viewer, organizations, distributors, distributorToOrgIds, params.organizationId);
 
   // When a manufacturer views all organizations, trust the API response
   // entirely — the BIOT API already scopes results to the authenticated
   // user's visibility. Client-side filtering in this case can silently drop
   // devices whose ownerOrganization wasn't captured by deriveOrganizations.
-  // Only apply client-side scope filtering when a specific org is selected.
-  const needsClientFilter = scope.selectedOrganizationId !== "all";
-  const scopedDevices: NormalizedDevice[] = rawDevices
-    .filter((d) => !needsClientFilter || deviceMatchesScope(d, scope.organizationIds, viewer))
-    .map(normalizeDevice);
+  // Only apply client-side scope filtering when a specific scope is selected.
+  const needsClientFilter = scope.kind !== "all";
+  const scopedRaw = rawDevices.filter((d) => !needsClientFilter || deviceMatchesScope(d, scope, viewer));
+  const scopedDevices: NormalizedDevice[] = scopedRaw.map(normalizeDevice);
+  const scopedDeviceIds = new Set(scopedDevices.map((d) => d.id));
+
+  // Compute the org id set used for glove-event queries. Glove events filter only
+  // by _ownerOrganization.id, so we need to query each owner-org represented in the
+  // scoped device set (and post-filter events by device id to avoid over-counting).
+  const eventOrgIds = scope.kind === "all"
+    ? scope.organizationIds
+    : Array.from(new Set(scopedDevices.map((d) => d.organizationId).filter((id): id is string => !!id)));
 
   const widgetErrors: Record<string, string> = {};
   const gloves = await safeWidget(
-    () => getGloveSummary(config, accessToken, scope.organizationIds, dateRange),
+    () => getGloveSummary(
+      config, accessToken, eventOrgIds, dateRange,
+      // Only restrict to in-scope device ids when a specific scope is selected.
+      // "All" view counts every event the API returns for the user's org set.
+      scope.kind === "all" ? null : scopedDeviceIds,
+    ),
     emptyGloveSummary(),
     (msg) => { widgetErrors.gloves = msg; },
   );
@@ -298,11 +332,16 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
       fromIso: dateRange.fromIso,
       toIso: dateRange.toIso,
       timezone: dateRange.timezone,
-      organizationId: scope.selectedOrganizationId,
+      // organizationId carries the encoded scope token ("all" | "org:<id>" | "dist:<id>")
+      // so the frontend can echo it back on its next request. The legacy value "all"
+      // and a bare uuid (treated as "org:<id>") continue to work.
+      organizationId: scope.selectedToken,
+      kind: scope.kind,
       organizationIds: scope.organizationIds,
       organizationLabel: scope.label,
     },
     organizations,
+    distributors,
     connection: getConnectionSummary(scopedDevices),
     // All devices (connected + disconnected + unknown) — frontend filters by connectionStatusKey
     devices: getAllDevices(scopedDevices),
@@ -352,11 +391,58 @@ async function getDevices(config: BiotConfig, accessToken: string): Promise<unkn
   return allDevices;
 }
 
+// Distributor entities (templateName "distributor"). Confirmed live 2026-05-19:
+// returns { data: [{ _id, _name, _ownerOrganization, ... }] }.
+async function getDistributors(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+  const all: unknown[] = [];
+  let page = 0;
+  while (true) {
+    const payload = await fetchBiot(config, "GET", "/generic-entity/v3/generic-entities/distributor", {
+      accessToken,
+      query: { searchRequest: JSON.stringify({ limit: 100, page }) },
+    });
+    const items = extractItems(payload, ["data", "items", "results"]);
+    if (!items.length) break;
+    all.push(...items);
+    const totalPages = extractTotalPages(payload);
+    if (totalPages !== null && page + 1 >= totalPages) break;
+    if (items.length < 100) break;
+    page += 1;
+  }
+  return all;
+}
+
+// organization_to_distributor bridge entities (confirmed live 2026-05-19):
+// _ownerOrganization is the child organization; organization_distributor is the
+// reference to the distributor entity. Used to map orgs → distributor(s).
+async function getOrgDistributorBridges(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+  const all: unknown[] = [];
+  let page = 0;
+  while (true) {
+    const payload = await fetchBiot(config, "GET", "/generic-entity/v3/generic-entities/organization_to_distributor", {
+      accessToken,
+      query: { searchRequest: JSON.stringify({ limit: 100, page }) },
+    });
+    const items = extractItems(payload, ["data", "items", "results"]);
+    if (!items.length) break;
+    all.push(...items);
+    const totalPages = extractTotalPages(payload);
+    if (totalPages !== null && page + 1 >= totalPages) break;
+    if (items.length < 100) break;
+    page += 1;
+  }
+  return all;
+}
+
 async function getGloveSummary(
   config: BiotConfig,
   accessToken: string,
   organizationIds: string[],
   dateRange: DateRange,
+  // When non-null, only events whose source device is in this set are counted.
+  // Required for distributor scope: device_event has no distributor reference, so
+  // we query each owner-org and post-filter by the in-scope device ids.
+  allowedDeviceIds: Set<string> | null,
 ): Promise<Record<string, unknown>> {
   const counts = zeroCounts(GLOVE_BREAKDOWN);
   let total = 0;
@@ -396,6 +482,15 @@ async function getGloveSummary(
       if (!items.length) break;
 
       for (const item of items) {
+        if (allowedDeviceIds) {
+          // device_event.device_event is the reference to the source device.
+          // .id holds the device's `_id` string.
+          const deviceRef = (item as Record<string, unknown>).device_event;
+          const deviceId = deviceRef && typeof deviceRef === "object"
+            ? String((deviceRef as Record<string, unknown>).id ?? "")
+            : "";
+          if (!deviceId || !allowedDeviceIds.has(deviceId)) continue;
+        }
         const norm = normalizeGloveSize((item as Record<string, unknown>).event_cartridge_size);
         counts[norm.key] += 1;
         total += 1;
@@ -447,6 +542,10 @@ function getAllDevices(devices: NormalizedDevice[]): Record<string, unknown> {
     id: d.id,
     organizationId: d.organizationId,
     organizationName: d.organizationName,
+    // Per-device distributor link (device_distributor.{id,name}). Surfaced on the
+    // Device detail modal Status tab.
+    distributorId: d.distributorId,
+    distributorName: d.distributorName,
     connected: d.connected,
     connectionStatus: d.connectionStatus,
     connectionStatusKey: d.connectionStatusKey,
@@ -510,16 +609,31 @@ function getSanitizerSummary(devices: NormalizedDevice[]): Record<string, unknow
 // Device normalization
 // ---------------------------------------------------------------------------
 
-function deviceMatchesScope(device: unknown, organizationIds: string[], viewer: Viewer): boolean {
+// New scope model:
+//  kind="all"           — no device filter applied
+//  kind="organization"  — match device._ownerOrganization.id === scope.id
+//                         (or, for child-org expansion, ∈ scope.organizationIds)
+//  kind="distributor"   — match (device.device_distributor.id === scope.id)
+//                         OR (device._ownerOrganization.id ∈ scope.organizationIds)
+//                         The OR is what implements the "see all machines under me"
+//                         rule: case 1 (per-device link) and case 2 (via child org).
+function deviceMatchesScope(device: unknown, scope: ResolvedScope, viewer: Viewer): boolean {
   const ownerOrgId = firstNonEmpty([
     nestedGet(device, ["_ownerOrganization", "id"]),
     nestedGet(device, ["ownerOrganization", "id"]),
   ]) as string | null;
-  if (!organizationIds.length) {
+  const distId = nestedGet(device, ["device_distributor", "id"]) as string | null;
+
+  if (scope.kind === "all") {
     if (viewer.role === "organization" && viewer.ownerOrganizationId) return ownerOrgId === viewer.ownerOrganizationId;
     return true;
   }
-  return organizationIds.includes(ownerOrgId ?? "");
+  if (scope.kind === "distributor") {
+    if (distId && distId === scope.id) return true;
+    return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
+  }
+  // organization scope
+  return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
 }
 
 function normalizeDevice(device: unknown): NormalizedDevice {
@@ -549,10 +663,17 @@ function normalizeDevice(device: unknown): NormalizedDevice {
     }
   }
 
+  // device_distributor is a reference object on the device root: { id, name, templateName: "distributor" }.
+  // Confirmed live 2026-05-19. May be absent / null for unassigned devices.
+  const distributorId = nestedGet(d, ["device_distributor", "id"]) as string | null;
+  const distributorName = nestedGet(d, ["device_distributor", "name"]) as string | null;
+
   return {
     id: String(firstNonEmpty([d._id, d.id]) ?? "Unknown device"),
     organizationId: firstNonEmpty([owner.id, owner._id]) as string | null,
     organizationName: firstNonEmpty([owner.name, owner.displayName, owner.label]) as string | null,
+    distributorId: distributorId ?? null,
+    distributorName: distributorName ?? null,
     connected: nestedGet(d, ["_status", "_connection", "_connected"]) as boolean | null,
     connectionStatus: conn.label,
     connectionStatusKey: conn.key,
@@ -693,23 +814,129 @@ function deriveOrganizations(viewer: Viewer, selfPayload: unknown, devices: unkn
   return items;
 }
 
+// Resolved scope passed through the rest of the pipeline. `kind` drives the
+// device-match rule; `id` is the selected scope target (or null for "all"); and
+// `organizationIds` is the org-id set used for event queries.
+interface ResolvedScope {
+  kind: "all" | "organization" | "distributor";
+  id: string | null;
+  // For "all": every known org id (event query fanout).
+  // For "organization": [<orgId>].
+  // For "distributor": the list of child org ids linked to that distributor (via
+  //   organization_to_distributor bridge entities). Used for both event queries
+  //   and the secondary "owner-org membership" leg of the device match.
+  organizationIds: string[];
+  label: string;
+  // Echo of the encoded selection ("all" | "org:<id>" | "dist:<id>"). The frontend
+  // resends this on the next request to keep the dropdown selection sticky.
+  selectedToken: string;
+}
+
+function parseScopeToken(raw: string | undefined, knownOrgIds: Set<string>, knownDistIds: Set<string>): { kind: "all" | "organization" | "distributor"; id: string | null } {
+  const t = typeof raw === "string" ? raw.trim() : "";
+  if (!t || t === "all") return { kind: "all", id: null };
+  if (t.startsWith("dist:")) return { kind: "distributor", id: t.slice("dist:".length) };
+  if (t.startsWith("org:")) return { kind: "organization", id: t.slice("org:".length) };
+  // Legacy: a bare value (UUID or otherwise). Disambiguate against known sets so
+  // a value previously stored in localStorage / linked URL still works.
+  if (knownDistIds.has(t)) return { kind: "distributor", id: t };
+  if (knownOrgIds.has(t)) return { kind: "organization", id: t };
+  // Unknown value — fall back to "all" rather than 400'ing; the dropdown will
+  // re-render and the user can choose a valid option.
+  return { kind: "all", id: null };
+}
+
 function resolveScope(
-  viewer: Viewer, organizations: Organization[], requestedOrgId: string | undefined,
-): { selectedOrganizationId: string; organizationIds: string[]; label: string } {
-  const available = organizations.map((o) => o.id).filter(Boolean);
+  viewer: Viewer,
+  organizations: Organization[],
+  distributors: Distributor[],
+  distributorToOrgIds: Record<string, string[]>,
+  requestedToken: string | undefined,
+): ResolvedScope {
+  const availableOrgs = organizations.map((o) => o.id).filter(Boolean);
+  const availableDistIds = new Set(distributors.map((d) => d.id));
+
+  // Organization-role users (incl. anyone whose group does not include "manufacturer")
+  // are locked to their own organization. No distributor selection available.
   if (viewer.role === "organization") {
-    const locked = viewer.ownerOrganizationId ?? available[0] ?? null;
-    return { selectedOrganizationId: locked ?? "", organizationIds: locked ? [locked] : [], label: orgLabel(organizations, locked) };
+    const locked = viewer.ownerOrganizationId ?? availableOrgs[0] ?? null;
+    return {
+      kind: locked ? "organization" : "all",
+      id: locked,
+      organizationIds: locked ? [locked] : [],
+      label: orgLabel(organizations, locked),
+      selectedToken: locked ? `org:${locked}` : "all",
+    };
   }
-  const selected = typeof requestedOrgId === "string" && requestedOrgId.trim() ? requestedOrgId.trim() : "all";
-  if (selected !== "all" && !available.includes(selected)) throw new Error("The requested organization is not available for this account.");
-  if (selected === "all") return { selectedOrganizationId: "all", organizationIds: available, label: "All organizations" };
-  return { selectedOrganizationId: selected, organizationIds: [selected], label: orgLabel(organizations, selected) };
+
+  const parsed = parseScopeToken(requestedToken, new Set(availableOrgs), availableDistIds);
+  if (parsed.kind === "all") {
+    return {
+      kind: "all", id: null, organizationIds: availableOrgs,
+      label: "All organizations", selectedToken: "all",
+    };
+  }
+  if (parsed.kind === "distributor" && parsed.id && availableDistIds.has(parsed.id)) {
+    const childOrgIds = distributorToOrgIds[parsed.id] ?? [];
+    return {
+      kind: "distributor", id: parsed.id, organizationIds: childOrgIds,
+      label: distLabel(distributors, parsed.id), selectedToken: `dist:${parsed.id}`,
+    };
+  }
+  if (parsed.kind === "organization" && parsed.id && availableOrgs.includes(parsed.id)) {
+    return {
+      kind: "organization", id: parsed.id, organizationIds: [parsed.id],
+      label: orgLabel(organizations, parsed.id), selectedToken: `org:${parsed.id}`,
+    };
+  }
+  // Unknown / not-available selection — silently fall back to "all" for manufacturers.
+  return {
+    kind: "all", id: null, organizationIds: availableOrgs,
+    label: "All organizations", selectedToken: "all",
+  };
 }
 
 function orgLabel(organizations: Organization[], id: string | null): string {
   if (!id) return "No organization";
   return organizations.find((o) => o.id === id)?.name ?? id;
+}
+
+function distLabel(distributors: Distributor[], id: string | null): string {
+  if (!id) return "No distributor";
+  return distributors.find((d) => d.id === id)?.name ?? id;
+}
+
+// Build distributor-id → child-org-id[] from organization_to_distributor bridge entities.
+// Bridge shape (confirmed live 2026-05-19):
+//   _ownerOrganization.id  = child org id
+//   organization_distributor.id = distributor id
+// One distributor may have many child orgs; one org may belong to many distributors.
+function buildDistributorToOrgsMap(bridges: unknown[]): Record<string, string[]> {
+  const out: Record<string, Set<string>> = {};
+  for (const b of bridges) {
+    const orgId = nestedGet(b, ["_ownerOrganization", "id"]) as string | null;
+    const distId = nestedGet(b, ["organization_distributor", "id"]) as string | null;
+    if (!orgId || !distId) continue;
+    (out[distId] ??= new Set()).add(orgId);
+  }
+  const result: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(out)) result[k] = Array.from(v);
+  return result;
+}
+
+function normalizeDistributors(raw: unknown[]): Distributor[] {
+  const seen = new Map<string, Distributor>();
+  for (const r of raw) {
+    const id = nestedGet(r, ["_id"]) as string | null;
+    if (!id || seen.has(id)) continue;
+    const name = (nestedGet(r, ["_name"]) as string | null) ?? id;
+    seen.set(id, { id, name });
+  }
+  return Array.from(seen.values()).sort((a, b) => {
+    const an = (a.name || a.id).toLowerCase();
+    const bn = (b.name || b.id).toLowerCase();
+    return an < bn ? -1 : an > bn ? 1 : 0;
+  });
 }
 
 // ---------------------------------------------------------------------------

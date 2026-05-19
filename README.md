@@ -82,8 +82,9 @@ GitHub Pages serves `index.html` / `dashboard.js` / `dashboard.css` directly fro
 
 - **Machine table filter:** All / Disconnected (default) / Connected chips. Clicking a doughnut segment or legend row also sets the filter and scrolls to the table.
 - **Machine search:** Live partial-match field in the table header — filters by device ID as the user types.
-- **Device detail:** Opens as a centered modal on row click. Two tabs: Status (from device `_status` fields) and Settings (async-fetched via the `entity` action). Closes on backdrop click or Escape.
+- **Device detail:** Opens as a centered modal on row click. Two tabs: Status (from device `_status` fields) and Settings (async-fetched via the `entity` action). Status tab shows the device's End User org and Distributor (the latter from `device_distributor` on the BIOT device payload). Closes on backdrop click or Escape.
 - **Glove chart:** Legend shows a HIGH DEMAND badge on the highest-consumption size. A PRO TIP row below the chart recommends stocking the top size.
+- **Scope selector (manufacturer only):** Two optgroups — *Distributors* and *Organizations*. Selecting a distributor scopes the dashboard to every device whose `device_distributor.id` is that distributor **OR** whose owner organization is linked to that distributor via an `organization_to_distributor` bridge entity. Selecting an organization scopes to devices owned by that org. "All organizations" disables scope filtering.
 
 ---
 

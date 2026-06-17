@@ -1,11 +1,79 @@
 # Migration Status — Supabase → Cloudflare runtime
 
-**Stage:** 3 — *real Cloudflare staging deploy + validation* (no production cutover).
+**Stage:** 4 — *non-production frontend preview + end-to-end UI validation* (no cutover).
 **Branch:** `migration/cloudflare-runtime`
 **Date:** 2026-06-17
 **Production status:** ✅ **Unchanged.** Frontend (GitHub Pages) still calls the Supabase
 Edge Function. Supabase remains the active production backend. BIOT remains the only
-source of truth.
+source of truth. Production `index.html` still points at Supabase (verified on disk).
+
+---
+
+## STAGE 4 SUMMARY (latest)
+
+**Real UI, end-to-end, against the real Cloudflare staging Worker: ✅ PASS — no
+migration-specific issues found.** Drove a real Chromium browser (Playwright) through the
+actual `dashboard.js`/`dashboard.css` UI, talking to
+`https://biot-dashboard-staging.sw-590.workers.dev`. **19 pass, 1 warn, 0 fail**, and **all
+backend traffic went to Cloudflare (11 hits) with 0 to Supabase.**
+
+### Preview path (non-production, zero-drift)
+`cloudflare/preview/serve-preview.mjs` — a local server that serves the **unmodified
+production frontend** but rewrites **only** the `window.DASHBOARD_CONFIG` block **in memory**
+to point at the Cloudflare staging Worker (and blanks the Supabase anon key, which the Worker
+ignores), plus a red "PREVIEW — Cloudflare staging" banner. **No file on disk is changed** —
+production `index.html` stays the single source of truth, so the preview cannot drift and
+production is untouched. (Confirmed: `index.html` on disk still contains the Supabase URL.)
+Automated test: `cloudflare/preview/e2e-preview.mjs` (Playwright; creds via env; Playwright is
+not a repo dependency). See `cloudflare/preview/README.md`.
+
+### End-to-end UI results (preview → real Cloudflare staging)
+
+| UI flow | Result | Evidence |
+|---|---|---|
+| Preview loads + login view + banner | ✅ | banner present |
+| Error handling: bad login | ✅ | `#loginError` shows "Login Failed" |
+| Login → dashboard view | ✅ | dashboard HTTP 200 |
+| User info | ✅ | `matan@igintech.com` |
+| Machine table render | ✅ | 115 rows, count badge 115 |
+| Charts (4) render | ✅ | connection/glove/sanitizer/operational 375×300 |
+| Metric widgets | ✅ | all four populated |
+| Glove metrics non-zero (subrequest fix) | ✅ | Total Events 824 (S177/M236/L191/XL220) |
+| Search filter | ✅ | "M2" → 1/115 rows, all match |
+| Filter chips (All/Connected/Disconnected) | ✅ | all=121, connected=6, disconnected=115 |
+| Date/time filter → Apply reload | ✅ | flatpickr set + dashboard HTTP 200 |
+| Scope selector (manufacturer) | ✅ | optgroups [Distributors, Organizations] |
+| Scope: select organization | ✅ | `org:00000000-…` → HTTP 200, count 117 |
+| Scope: select distributor | ✅ | `dist:f2f84f75-…` → HTTP 200 |
+| Device modal (Status tab) | ✅ | id=M2, conn=Disconnected |
+| Settings tab → entity fetch | ✅ | entity HTTP 200, no error |
+| 401 → refresh → retry recovery | ✅ | corrupted access token; refresh POST seen; dashboard HTTP 200 |
+| Logout | ✅ | returns to login, token cleared |
+| Backend routing guard | ✅ | Cloudflare hits=11, **Supabase hits=0**, actions=[dashboard,entity] |
+| Console/JS errors | ⚠️ WARN | see below — all expected negative-path noise |
+
+### The one WARN — explained, not a defect
+Console resource errors observed: **404, 500, 401**. All are expected and identical to
+Supabase behavior:
+- **404** = `/favicon.ico` (browser auto-request; the app defines no favicon — same on prod).
+- **500** = the deliberate bad-login test. **Both Cloudflare and Supabase return identical
+  `HTTP 500 {"ok":false,"error":{"message":"Login Failed"}}`** for invalid credentials (BIOT
+  returns a non-401 status that the proxy surfaces as 500). Pre-existing behavior, not a
+  migration difference; the UI correctly shows "Login Failed".
+- **401** = the deliberate forced-refresh test (corrupted access token → 401 → refresh).
+
+No functional assertion failed; no migration-specific UI/backend issue was discovered, so
+**nothing needed fixing** in Stage 4.
+
+### Roles/scopes actually tested
+- **Manufacturer** (`matan@igintech.com`): logged in directly — full UI validated.
+- **Organization scope** and **distributor scope**: exercised via the manufacturer scope
+  dropdown (`org:00000000-…` → 117 devices; `dist:f2f84f75-…` → 200), the same mechanism the
+  app uses. Distributor hierarchy + field mappings render correctly in the modal/table.
+- **Not tested as separate logins:** a real organization-role user and the real distributor
+  user (`stamshemyafe@gmail.com`) — those credentials are not in the local workspace. Their
+  login path is identical code (validated at the API level in Stage 2/3); a real-user UI login
+  should be repeated when those credentials are available, before cutover.
 
 ---
 
@@ -257,12 +325,19 @@ progress)* section pointing here; production deploy instructions left intact.
 8. **Decommission Supabase** only after the Worker has been validated in production.
 
 ### Exact next step
-The staging Worker is live and parity-clean. The next safe step toward production readiness is
-a **frontend preview cutover in a non-production context only**: e.g. a local/branch build of
-the dashboard pointed at `https://biot-dashboard-staging.sw-590.workers.dev` to exercise the
-real UI end-to-end (login → dashboard → device detail/settings) against the Worker, while
-production `index.html` continues to point at Supabase. In parallel, enable the Workers Paid
-plan (item 2). No production `index.html` change and no Supabase removal yet.
+Stage 4 done: the real UI is validated end-to-end against Cloudflare staging (preview path in
+`cloudflare/preview/`). The next safe steps toward production readiness, in order:
+1. **Enable the Workers Paid plan** (1000 subrequests) so very large tenants never silently
+   drop the glove widget; re-run `e2e-preview.mjs` to confirm.
+2. **Real-user UI pass** with an organization-role user and the real distributor user once
+   those credentials are available (Stage 4 covered manufacturer + scoped views only).
+3. **Pick the production Worker address** (custom domain vs `workers.dev`) and define
+   `[env.production]` in `wrangler.toml` + a manual, gated production deploy workflow; narrow
+   the `push: migration/**` auto-deploy trigger so production never auto-deploys.
+4. **Then, and only then, the production cutover**: point `window.DASHBOARD_CONFIG.supabaseEdgeUrl`
+   in the real `index.html` at the Worker (own commit/PR), keep Supabase as instant rollback,
+   and decommission Supabase only after production validation.
+No production `index.html` change and no Supabase removal in this stage.
 
 ## Intentionally NOT switched in this stage
 

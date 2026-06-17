@@ -22,6 +22,14 @@ on:
         description: 'Type "deploy-staging" to confirm a staging deploy'
         required: true
         default: ""
+  # Staging-validation convenience (Stage 3): auto-deploy to STAGING on pushes to the
+  # migration branch. This is safe — staging-only, there is no production target defined
+  # anywhere. It also makes this workflow dispatchable (a workflow_dispatch-only file that
+  # has never run on the default branch is not registered for manual dispatch).
+  # Revisit before cutover: a production deploy must stay manual + gated.
+  push:
+    branches:
+      - "migration/**"
 
 permissions:
   contents: read
@@ -29,7 +37,9 @@ permissions:
 jobs:
   deploy-staging:
     name: Deploy to Cloudflare (staging)
-    if: ${{ github.event.inputs.confirm == 'deploy-staging' }}
+    # Deploy on: (a) a push to a migration/** branch, or (b) a manual dispatch that typed
+    # the confirmation. Any other context skips.
+    if: ${{ github.event_name == 'push' || github.event.inputs.confirm == 'deploy-staging' }}
     runs-on: ubuntu-latest
     environment: staging
     defaults:

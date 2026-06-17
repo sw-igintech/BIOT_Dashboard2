@@ -450,6 +450,17 @@ async function getOrgDistributorBridges(config: BiotConfig, accessToken: string)
   return all;
 }
 
+// device_event page size. Deliberately large (BIOT honors limit=1000, verified live
+// 2026-06-17). Glove events are high-volume (thousands/month), and Cloudflare Workers
+// cap subrequests per invocation (50 on Free, 1000 on Paid). At the old size of 100 a
+// manufacturer-wide "all" view needed ~48 device_event pages and blew past the Free
+// limit, so safeWidget swallowed the failure and glove counts silently showed 0 (caught
+// in stage-3 staging parity). 1000/page cuts that to ~5 pages, well under the cap.
+// NOTE: this raises the ceiling ~10x but does not remove it — very large tenants still
+// warrant the Workers Paid plan (1000 subrequests). The Supabase/Deno runtime has no
+// such cap, which is why it was never hit there.
+const EVENT_PAGE_SIZE = 1000;
+
 async function getGloveSummary(
   config: BiotConfig,
   accessToken: string,
@@ -484,7 +495,7 @@ async function getGloveSummary(
           // results may differ. This has not been independently verified.
           _creationTime: { from: dateRange.fromIso, to: dateRange.toIso },
         },
-        limit: 100,
+        limit: EVENT_PAGE_SIZE,
         page,
       };
 
@@ -514,7 +525,7 @@ async function getGloveSummary(
 
       const totalPages = extractTotalPages(payload);
       if (totalPages !== null && page + 1 >= totalPages) break;
-      if (items.length < 100) break;
+      if (items.length < EVENT_PAGE_SIZE) break;
       page += 1;
     }
   }

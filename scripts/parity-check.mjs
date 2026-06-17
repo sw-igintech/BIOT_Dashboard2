@@ -98,6 +98,13 @@ function compareDashboard(wj, sj) {
   // built deterministically, so a plain diff is fine; still classify here for clarity.
   for (const d of diff(w.scope, s.scope, "scope")) stable.push(d);
 
+  // Partial failures must match: if one backend silently degraded a widget (e.g. hit the
+  // Cloudflare subrequest limit) and the other did not, that is a STRUCTURAL difference,
+  // not telemetry drift. (Caught the gloves subrequest-limit blocker in stage 3.)
+  const wpf = Object.keys(w.meta?.partialFailures || {}).sort().join(",");
+  const spf = Object.keys(s.meta?.partialFailures || {}).sort().join(",");
+  if (wpf !== spf) stable.push({ path: "meta.partialFailures.keys", a: wpf || "(none)", b: spf || "(none)" });
+
   // Summary widgets: breakdown KEYS/LABELS are structural; VALUES/counts are telemetry.
   for (const widget of ["connection", "operational", "sanitizer", "gloves"]) {
     const wb = (w[widget]?.breakdown || []), sb = (s[widget]?.breakdown || []);

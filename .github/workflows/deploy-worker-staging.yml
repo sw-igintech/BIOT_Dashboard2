@@ -48,6 +48,24 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Deploy FIRST so the Worker exists before we attach a secret. `wrangler secret
+      # put` against a not-yet-deployed Worker fails with script_not_found, so ordering
+      # matters on the first-ever deploy. Capture the deployed workers.dev URL.
+      - name: Deploy (staging)
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler deploy --env staging | tee deploy.log
+          URL="$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)"
+          echo "Deployed URL: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "### Cloudflare staging deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "Worker URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # Setting a secret triggers an automatic re-deploy of the existing code with the
+      # secret attached, so BIOT_BASE_URL is live after this step.
       - name: Push BIOT_BASE_URL secret to the Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -55,15 +73,10 @@ jobs:
           BIOT_BASE_URL: ${{ secrets.BIOT_BASE_URL }}
         run: echo "$BIOT_BASE_URL" | npx wrangler secret put BIOT_BASE_URL --env staging
 
-      - name: Deploy (staging)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --env staging
-
       - name: Smoke-test health endpoint
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo "Deploy complete. Run the health smoke test against the deployed URL:"
-          echo "  node scripts/smoke-health.mjs https://biot-dashboard-staging.<your-subdomain>.workers.dev"
+          URL="${{ steps.deploy.outputs.url }}"
+          if [ -z "$URL" ]; then echo "Could not determine deployed URL"; exit 1; fi
+          # Give the secret re-deploy a moment to propagate, then assert health ok.
+          sleep 5
+          node ../../scripts/smoke-health.mjs "$URL"

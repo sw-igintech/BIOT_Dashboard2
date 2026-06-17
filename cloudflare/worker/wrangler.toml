@@ -35,9 +35,22 @@ enabled = true
 # ---------------------------------------------------------------------------
 # Named environments
 # ---------------------------------------------------------------------------
-# Staging/preview environment — the only target wired up in this migration stage.
-# Production is intentionally NOT defined here yet: no cutover until a later stage.
+# Two isolated environments. Each is a separate Worker with its own secrets:
+#   staging    → biot-dashboard-staging.sw-590.workers.dev   (validated, in use)
+#   production → biot-dashboard-prod.sw-590.workers.dev       (config ready; NOT yet deployed)
+#
+# IMPORTANT: defining [env.production] here does NOT cut production over. Cutover only happens
+# when the production frontend (index.html) is pointed at the production Worker URL — that is a
+# separate, isolated, gated step (see cloudflare/cutover/CUTOVER.md). Deploying the production
+# Worker is done only via the manual, gated `Deploy Worker (production)` GitHub workflow.
 [env.staging]
 name = "biot-dashboard-staging"
 
-# [env.production]  ← intentionally left undefined. Add only at cutover time.
+[env.production]
+name = "biot-dashboard-prod"
+# Default address: https://biot-dashboard-prod.sw-590.workers.dev (workers.dev).
+# OPTIONAL custom domain/route (requires a Cloudflare-managed zone). Leave commented unless a
+# custom domain is chosen at cutover time; if enabled, update the cutover URL accordingly.
+# routes = [
+#   { pattern = "dashboard-api.example.com", custom_domain = true }
+# ]

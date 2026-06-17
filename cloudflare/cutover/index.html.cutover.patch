@@ -1,0 +1,13 @@
+diff --git a/index.html b/index.html
+index 6328215..0774c5a 100644
+--- a/index.html
++++ b/index.html
+@@ -7,7 +7,7 @@
+   <title>IGIN SMART - IOT</title>
+   <script>
+     window.DASHBOARD_CONFIG = {
+-      supabaseEdgeUrl: "https://qjkrkqyycujmjxbfthev.supabase.co/functions/v1/biot-dashboard",
++      supabaseEdgeUrl: "https://biot-dashboard-prod.sw-590.workers.dev",
+       supabaseAnonKey: "sb_publishable_z7FBfMgMJYiZPfvgYPx_1Q_Q5WbevXJ"
+     };
+   </script>

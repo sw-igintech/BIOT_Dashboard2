@@ -1,11 +1,62 @@
 # Migration Status — Supabase → Cloudflare runtime
 
-**Stage:** 4 — *non-production frontend preview + end-to-end UI validation* (no cutover).
+**Stage:** 5 — *production-readiness preparation* (NOT the cutover).
 **Branch:** `migration/cloudflare-runtime`
 **Date:** 2026-06-17
 **Production status:** ✅ **Unchanged.** Frontend (GitHub Pages) still calls the Supabase
 Edge Function. Supabase remains the active production backend. BIOT remains the only
 source of truth. Production `index.html` still points at Supabase (verified on disk).
+
+---
+
+## STAGE 5 SUMMARY (latest)
+
+**Goal:** make a Cloudflare production cutover *possible and safe*, without performing it.
+Nothing production-facing changed; the cutover remains a separate one-line step.
+
+### Deployment model — now clean and gated
+- **Staging** (`deploy-worker-staging.yml`): auto-deploy narrowed from `migration/**` to the
+  single branch **`migration/cloudflare-runtime`** (+ manual dispatch). Staging-only; never
+  touches production. Smoke test now retries (6×5s) to absorb first-deploy `workers.dev` lag.
+- **Production** (`deploy-worker-production.yml`, NEW): **manual `workflow_dispatch` only, no
+  push/PR trigger ever.** Double-gated: must type `deploy-production` **and** runs in the
+  `production` GitHub Environment (add Required Reviewers there for an approval click). It only
+  becomes dispatchable after the migration branch is merged to `main` — so **production cannot
+  be deployed before the cutover step itself**. Publishing the prod Worker is *not* the cutover.
+
+### Cloudflare production config — added (not deployed)
+- `wrangler.toml` now defines `[env.production]` → Worker `biot-dashboard-prod`
+  (URL `https://biot-dashboard-prod.sw-590.workers.dev`), fully isolated from
+  `biot-dashboard-staging` (separate Worker + separate secrets). Optional custom-domain `routes`
+  block is included but commented out. Both envs `wrangler deploy --dry-run` build cleanly.
+- The production Worker has **not** been deployed (deploy is gated; also no local CF creds).
+
+### Cutover prepared as an isolated, reversible step
+- Exact change = **one line** in `index.html`: `supabaseEdgeUrl` Supabase → Cloudflare prod URL.
+- Captured as `cloudflare/cutover/index.html.cutover.patch` (ready to `git apply`) — **not
+  applied**; `index.html` on disk verified still pointing at Supabase.
+- Full runbook + go/no-go checklist + rollback in `cloudflare/cutover/CUTOVER.md`.
+
+### Rollback (simple, immediate)
+`git revert` the one-line cutover commit and push — GitHub Pages redeploys the Supabase-pointed
+`index.html`. No backend redeploy needed (Supabase Edge Function stays live and untouched);
+BIOT tokens are backend-agnostic so sessions survive. Keep Supabase live ~2–4 weeks post-cutover.
+
+### Role validation status
+- **Manufacturer** (`matan@igintech.com`): fully validated end-to-end (Stage 4 UI; Stages 2–3 API).
+- **Organization scope** + **distributor scope**: validated via the manufacturer scope dropdown
+  (`org:00000000-…` → 117 devices; `dist:f2f84f75-…`) — same code path the app uses.
+- **STILL UNVALIDATED as separate logins:** a real **organization-role** user and the real
+  **distributor** user (`stamshemyafe@gmail.com`). **Reason: no credentials in the workspace**
+  (`claude/biot_credentials.env` holds only the manufacturer account; the distributor email is
+  documented but has no password). Their login path is identical code, but a real-user UI login
+  should be done before/at cutover. This is the one open validation item.
+
+### Production-cutover-ready?
+**Backend + tooling: ready.** Remaining blockers before flipping the switch: (1) enable Workers
+Paid plan; (2) deploy the production Worker via the gated workflow (post-merge) and re-run
+smoke/parity/E2E against the prod URL; (3) real-user UI pass for org + distributor roles. The
+cutover line itself is prepared and reversible.
 
 ---
 

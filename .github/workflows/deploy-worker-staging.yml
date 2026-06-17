@@ -22,14 +22,13 @@ on:
         description: 'Type "deploy-staging" to confirm a staging deploy'
         required: true
         default: ""
-  # Staging-validation convenience (Stage 3): auto-deploy to STAGING on pushes to the
-  # migration branch. This is safe — staging-only, there is no production target defined
-  # anywhere. It also makes this workflow dispatchable (a workflow_dispatch-only file that
-  # has never run on the default branch is not registered for manual dispatch).
-  # Revisit before cutover: a production deploy must stay manual + gated.
+  # Auto-deploy to STAGING only on the single active migration branch (narrowed from
+  # migration/** in Stage 5 so random migration/* branches can't trigger deploys). This is
+  # staging-only and never touches production (production has its own gated workflow with no
+  # push trigger). Staging is intentionally low-friction for ongoing validation.
   push:
     branches:
-      - "migration/**"
+      - "migration/cloudflare-runtime"
 
 permissions:
   contents: read
@@ -83,10 +82,8 @@ jobs:
           BIOT_BASE_URL: ${{ secrets.BIOT_BASE_URL }}
         run: echo "$BIOT_BASE_URL" | npx wrangler secret put BIOT_BASE_URL --env staging
 
-      - name: Smoke-test health endpoint
+      - name: Smoke-test health endpoint (with retry for first-deploy propagation)
         run: |
           URL="${{ steps.deploy.outputs.url }}"
           if [ -z "$URL" ]; then echo "Could not determine deployed URL"; exit 1; fi
-          # Give the secret re-deploy a moment to propagate, then assert health ok.
-          sleep 5
-          node ../../scripts/smoke-health.mjs "$URL"
+          node ../../scripts/smoke-health.mjs "$URL" --retries 6 --delay 5000

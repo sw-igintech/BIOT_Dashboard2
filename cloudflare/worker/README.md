@@ -53,7 +53,7 @@ node ../../scripts/smoke-health.mjs http://localhost:8787
 ```bash
 npm run typecheck
 npx wrangler deploy --env staging
-node ../../scripts/smoke-health.mjs https://biot-dashboard-staging.<your-subdomain>.workers.dev
+node ../../scripts/smoke-health.mjs https://biot-dashboard-staging.sw-590.workers.dev   # current staging URL
 ```
 
 ## Validating against production behavior

@@ -1,11 +1,87 @@
 # Migration Status — Supabase → Cloudflare runtime
 
-**Stage:** 2 — *staging validation / parity testing* (no production cutover).
+**Stage:** 3 — *real Cloudflare staging deploy + validation* (no production cutover).
 **Branch:** `migration/cloudflare-runtime`
 **Date:** 2026-06-17
 **Production status:** ✅ **Unchanged.** Frontend (GitHub Pages) still calls the Supabase
 Edge Function. Supabase remains the active production backend. BIOT remains the only
 source of truth.
+
+---
+
+## STAGE 3 SUMMARY (latest)
+
+**Real Cloudflare staging deploy: ✅ SUCCEEDED.**
+**Exact staging URL:** **`https://biot-dashboard-staging.sw-590.workers.dev`**
+(Worker name `biot-dashboard-staging`, account subdomain `sw-590`, version deployed via
+GitHub Actions.)
+
+**Parity verdict against the REAL deployed Worker: PASS.** 10 pass / 3 warn / 0 fail; every
+warn is live-telemetry drift with **0 structural diffs** (equal Worker-vs-Worker self-drift
+baseline). Validated from real Cloudflare egress, not local wrangler dev.
+
+**One real blocker found by real-egress testing — and FIXED in-stage:**
+- Manufacturer-wide (`all` / large org) dashboards returned `gloves = 0` with
+  `meta.partialFailures.gloves = "Too many subrequests by single Worker invocation"`.
+  **Cause:** Cloudflare Workers cap subrequests per invocation (**50 Free / 1000 Paid**).
+  Glove events paginated at 100/page needed ~48 `device_event` requests; combined with
+  device/distributor/self calls it overflowed 50, and `safeWidget` swallowed the failure →
+  glove counts silently showed **0**. Deno (Supabase) has no such cap, so it was never hit.
+- **Fix:** raised `device_event` page size 100 → 1000 (`EVENT_PAGE_SIZE`; BIOT honors
+  `limit=1000`, verified live), cutting ~48 pages to ~5. After redeploy, staging gloves =
+  **4745** (small 1278 / medium 679 / large 1960 / xl 828), exactly matching Supabase, and
+  `meta.partialFailures = {}`.
+- **Residual note:** the fix raises the subrequest ceiling ~10×, not infinitely. A very
+  large tenant could still exceed 50 on the **Free** plan → **production should run on the
+  Workers Paid plan (1000 subrequests).** Tracked as a pre-cutover item, not a code blocker.
+
+**Live-egress / WAF concern (Stage-2 carry-over): RESOLVED.** Login, refresh, and all
+dashboard/entity calls succeeded from real Cloudflare egress → BIOT returned 200s. With the
+explicit `User-Agent` (Stage 2 fix) in place, BIOT's WAF did **not** block Cloudflare IPs/ASN.
+
+### Parity results — REAL staging Worker (`…sw-590.workers.dev`) vs live Supabase
+
+| Flow | Worker (staging) | Supabase | Identical? | Notes |
+|---|---|---|---|---|
+| `health` | 200 | 200 | ✅ (modulo intended `backend` label + timestamp) | |
+| `login` | 200 | 200 | ✅ | same `userId`; **proves real CF egress→BIOT works** |
+| `refresh` | 200 | 200 | ✅ | keys `[accessToken,refreshToken]` |
+| `dashboard` manufacturer default | 200 | 200 | ✅ stable=0 | drift=12 telemetry (self-drift=12) |
+| `dashboard` scope=`all` | 200 | 200 | ✅ stable=0 | 121 devices both; **gloves 4745 both** |
+| `dashboard` scope=`org:00000000-…` | 200 | 200 | ✅ stable=0 | 117 devices both |
+| `dashboard` scope=`dist:<id>` | 200 | 200 | ✅ stable=0 | 0 devices both |
+| `entity` (settings, device M2) | 200 | 200 | ✅ **0 diffs exact** | |
+| error: no token | 401 | 401 | ✅ | identical envelope |
+| error: unknown action | 400 | 400 | ✅ | `"Unknown action: bogus"` |
+| error: entity missing id | 400 | 400 | ✅ | `"id parameter is required."` |
+| error: login missing fields | 400 | 400 | ✅ | `"username and password are required."` |
+| error: bad token | 401 | 401 | ✅ | identical BIOT message |
+
+### Differences found — classification (Stage 3)
+
+| Difference | Class | Action |
+|---|---|---|
+| Workers subrequest cap → gloves silently 0 on wide scopes | **was a BLOCKER** | ✅ **Fixed** (page size 100→1000); re-validated |
+| Free-plan 50-subrequest ceiling still finite for huge tenants | needs-attention (not a code blocker) | Use **Workers Paid (1000)** for prod |
+| `meta.backend` label / `meta.generatedAt` | harmless/intentional | keep |
+| Live telemetry drift (counts, per-device status, glove totals between calls) | harmless | proven via self-drift baseline |
+| First-deploy `workers.dev` propagation lag (CI smoke 1042 on first run) | harmless/operational | smoke retried fine; redeploys serve immediately |
+
+No remaining differences are blockers. The only outstanding pre-cutover *recommendation* is
+the Workers Paid plan for subrequest headroom.
+
+### Workflow / secret wiring (verified + fixed)
+- Repo secrets present and used: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+  `BIOT_BASE_URL` (all repo-level; accessible to the job). `staging` GitHub Environment is
+  auto-created on first run — harmless.
+- **Fixed:** workflow ordered `secret put` before `deploy` (first deploy would
+  `script_not_found`); now deploys first, then sets the secret (auto-redeploys), then runs a
+  real health smoke test against the captured URL.
+- **Fixed:** a `workflow_dispatch`-only workflow that never ran on the default branch is not
+  dispatchable (`gh workflow run` → 404). Added a `push: migration/**` trigger so the staging
+  deploy runs from the migration branch (staging-only; no production target). Manual
+  `workflow_dispatch` + confirm path retained. **Revisit before cutover** — production deploys
+  must stay manual + gated, and this push-trigger should be narrowed/removed at that time.
 
 ---
 
@@ -163,27 +239,30 @@ progress)* section pointing here; production deploy instructions left intact.
 
 ## What remains before cutover (later stages)
 
-1. **Cloud staging deploy** (the one Stage-2 item still blocked): provide
-   `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (and the account's `workers.dev`
-   subdomain), then `wrangler deploy --env staging` (or run the *Deploy Worker (staging)*
-   GitHub workflow). Validate the deployed URL with `node scripts/smoke-health.mjs <url>`.
-   ⚠️ When BIOT calls run from **real Cloudflare egress**, re-confirm BIOT's WAF does not
-   block Cloudflare IP ranges (the UA 403 is fixed; an IP/ASN rule is a separate risk).
-2. **Re-run parity from cloud staging** and ideally with org-role + real distributor-user
-   credentials (Stage-2 coverage limitation above): `WORKER_URL=<staging-url>
-   SUPABASE_ANON_KEY=… BIOT_USERNAME=… BIOT_PASSWORD=… node scripts/parity-check.mjs`.
-3. **Custom domain / routing** decision for the Worker (workers.dev URL vs custom domain).
-4. **Frontend cutover**: point `window.DASHBOARD_CONFIG.supabaseEdgeUrl` (rename advisable)
+1. **[DONE in Stage 3]** ~~Cloud staging deploy + real-egress parity.~~ Deployed to
+   `https://biot-dashboard-staging.sw-590.workers.dev`; parity PASS; WAF/egress confirmed OK;
+   subrequest blocker fixed.
+2. **Workers Paid plan** (pre-cutover recommendation): enable to raise the subrequest cap
+   from 50 → 1000 so large tenants never silently drop the glove widget. Re-validate wide
+   scopes after enabling.
+3. **Wider test-user coverage**: re-run parity with a real org-role user and the real
+   distributor user (`stamshemyafe@gmail.com`) — only a manufacturer credential is available
+   locally; those login paths are identical code but unexercised as separate logins.
+4. **Custom domain / routing** decision for the Worker (workers.dev URL vs custom domain).
+5. **Frontend cutover**: point `window.DASHBOARD_CONFIG.supabaseEdgeUrl` (rename advisable)
    at the Worker URL. Consider dropping the now-unused Supabase anon-key headers.
-5. **Frontend hosting** (optional): migrate GitHub Pages → Cloudflare Pages.
-6. **Define `[env.production]`** in `wrangler.toml` + a guarded production deploy workflow.
-7. **Decommission Supabase** only after the Worker has been validated in production.
+6. **Frontend hosting** (optional): migrate GitHub Pages → Cloudflare Pages.
+7. **Define `[env.production]`** in `wrangler.toml` + a guarded production deploy workflow;
+   narrow/remove the `push: migration/**` auto-deploy trigger so production stays manual+gated.
+8. **Decommission Supabase** only after the Worker has been validated in production.
 
 ### Exact next step
-Provide `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (repo secrets or local env), then
-deploy the Worker to the staging environment and re-point the parity harness at the deployed
-`workers.dev` URL. Code parity is already proven in the workerd runtime; only the cloud upload
-and a cloud-egress re-confirmation remain.
+The staging Worker is live and parity-clean. The next safe step toward production readiness is
+a **frontend preview cutover in a non-production context only**: e.g. a local/branch build of
+the dashboard pointed at `https://biot-dashboard-staging.sw-590.workers.dev` to exercise the
+real UI end-to-end (login → dashboard → device detail/settings) against the Worker, while
+production `index.html` continues to point at Supabase. In parallel, enable the Workers Paid
+plan (item 2). No production `index.html` change and no Supabase removal yet.
 
 ## Intentionally NOT switched in this stage
 
@@ -198,16 +277,16 @@ and a cloud-egress re-confirmation remain.
   runtime against live BIOT and diffed vs live Supabase — parity PASS (see Stage 2 summary).
 - **[RESOLVED, was a blocker] workerd no-User-Agent → BIOT 403.** Fixed with an explicit UA
   in `fetchBiot`.
-- **[ACTIVE BLOCKER] Cloudflare deploy credentials missing.** No `CLOUDFLARE_API_TOKEN` /
-  `CLOUDFLARE_ACCOUNT_ID` in env or repo secrets, and `wrangler` is not authenticated
-  (`wrangler whoami` → "not authenticated"). The literal cloud staging deploy cannot proceed
-  until these are provided. (Local `wrangler dev` needs no auth, which is how parity was run.)
+- **[RESOLVED] Cloudflare deploy credentials.** Repo secrets configured; staging deployed via
+  GitHub Actions to `https://biot-dashboard-staging.sw-590.workers.dev`.
+- **[RESOLVED, was a blocker] Workers subrequest cap → silent gloves=0.** Fixed by raising the
+  `device_event` page size to 1000. Production should still move to Workers Paid for headroom.
 - **Worker secret vs var.** `BIOT_BASE_URL` must be set exactly once — either a `wrangler
   secret` or a `[vars]` entry, not both (`wrangler.toml` ships with `[vars]` commented out).
   For local dev it is set via `cloudflare/worker/.dev.vars` (gitignored).
-- **Cloud egress / WAF (to re-check at cloud staging).** The UA 403 is fixed, but BIOT's WAF
-  could separately rate-limit or block by IP/ASN. Confirm from real Cloudflare egress.
-- **`workers.dev` subdomain** is account-specific; smoke/README URLs use a
-  `<your-subdomain>` placeholder to fill in post-deploy.
+- **[RESOLVED] Cloud egress / WAF.** Confirmed from real Cloudflare egress (`sw-590`): BIOT
+  returns 200s; no IP/ASN block observed. (Re-check if BIOT WAF rules change.)
+- **`workers.dev` subdomain** is `sw-590` for this account; staging URL is
+  `https://biot-dashboard-staging.sw-590.workers.dev`.
 - **Test-user coverage.** Only a manufacturer credential is available locally; org-role and
   real distributor-user logins were not exercised as separate logins (identical code path).

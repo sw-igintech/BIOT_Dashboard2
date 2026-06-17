@@ -58,9 +58,26 @@ node ../../scripts/smoke-health.mjs https://biot-dashboard-staging.<your-subdoma
 
 ## Validating against production behavior
 
-To compare this Worker's output to the live Supabase function, log in through both and
-diff the `dashboard` payloads for the same user/date-range. The `meta.backend` field
-distinguishes responses (`"Cloudflare Worker"` vs `"Supabase Edge Function"`).
+Use the parity harness — it drives identical inputs through this Worker and the live
+Supabase function with one shared BIOT token and deep-diffs the responses (order-independent,
+drift-aware):
+
+```bash
+# Worker running locally via `wrangler dev` on :8787, or pass a deployed staging URL.
+source ../../claude/biot_credentials.env   # BIOT_USERNAME / BIOT_PASSWORD / BIOT_BASE_URL (local only)
+WORKER_URL=http://localhost:8787 \
+SUPABASE_ANON_KEY=<publishable key from index.html> \
+node ../../scripts/parity-check.mjs
+```
+
+It checks health, login, refresh, dashboard (manufacturer + scope variants), entity/settings,
+and all error envelopes. Stage 2 result: **10 pass, 3 warn (live drift only), 0 fail** — see
+`docs/MIGRATION_STATUS.md`. The `meta.backend` field (`"Cloudflare Worker"` vs
+`"Supabase Edge Function"`) is the only intentional difference.
+
+> **Runtime note:** BIOT's edge returns **403** to requests with no `User-Agent`. Deno's fetch
+> adds one automatically; **workerd does not**, so `fetchBiot` sets an explicit `User-Agent`.
+> Do not remove it or every BIOT call will 403.
 
 ## Why this isn't wired to the frontend yet
 

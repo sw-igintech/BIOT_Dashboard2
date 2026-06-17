@@ -998,7 +998,15 @@ async function fetchBiot(
 ): Promise<Record<string, unknown>> {
   const base = options.baseUrl ?? config.baseUrl;
   const url = buildUrl(`${base}${path}`, options.query ?? {});
-  const headers: Record<string, string> = { Accept: "application/json" };
+  // User-Agent is REQUIRED by the BIOT edge/WAF: requests with no UA get a 403
+  // Forbidden HTML page. The Supabase Edge Function never set this explicitly because
+  // Deno's fetch auto-injects `User-Agent: Deno/x`. Cloudflare's workerd does NOT add a
+  // default User-Agent to subrequests, so we must set one or BIOT rejects every call.
+  // (Verified live 2026-06-17: no-UA → 403; any non-empty UA → 200.)
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "User-Agent": "biot-dashboard-cloudflare-worker",
+  };
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
   const init: RequestInit = { method, headers };
   if (options.body !== undefined) { headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }

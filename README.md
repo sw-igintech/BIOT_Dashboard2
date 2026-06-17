@@ -26,6 +26,19 @@ Data scope is determined entirely by the logged-in user's own BIOT token, not by
 
 ---
 
+## Migration (in progress) — Supabase → Cloudflare
+
+A migration to a **Cloudflare Worker** runtime (with GitHub Actions CI/CD) is being
+prepared **in parallel** on the `migration/cloudflare-runtime` branch. **Production is
+unchanged**: the frontend still calls the Supabase Edge Function, which remains the active
+backend. The Cloudflare path is a preview/staging target only — no cutover has occurred.
+
+- Backend contract (compatibility target): `docs/BACKEND_CONTRACT.md`
+- Migration status & remaining steps: `docs/MIGRATION_STATUS.md`
+- Parallel Worker implementation: `cloudflare/worker/`
+
+---
+
 ## Deploy (one time)
 
 ### 1 — Install Supabase CLI and log in

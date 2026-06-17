@@ -1,0 +1,43 @@
+# Cloudflare Worker config — biot-dashboard (PARALLEL MIGRATION TARGET)
+#
+# This deploys the BIOT proxy Worker that mirrors the active Supabase Edge Function.
+# It is NOT the production backend yet — the frontend still points at Supabase.
+# Deploy this to a preview/staging Worker URL for validation only.
+#
+# Required runtime config:
+#   BIOT_BASE_URL — the BIOT API base URL.
+#     For a non-secret host value you may keep it in [vars] below, or (preferred for
+#     parity with the current "secret"-style handling) set it out-of-band with:
+#         wrangler secret put BIOT_BASE_URL
+#     A [vars] value and a secret of the same name cannot both be set — pick one.
+#
+# Deploy (manual, staging):
+#   cd cloudflare/worker
+#   npm install
+#   npx wrangler deploy            # uses the top-level (staging) name below
+#
+# Local dev:
+#   npx wrangler dev               # reads .dev.vars (see .dev.vars.example)
+
+name = "biot-dashboard-staging"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# Observability: keep logs on for the validation phase.
+[observability]
+enabled = true
+
+# BIOT base URL. Commented out by default so it does not collide with a
+# `wrangler secret put BIOT_BASE_URL`. Uncomment ONLY if you prefer plaintext vars.
+# [vars]
+# BIOT_BASE_URL = "https://api.dev.igin.biot-med.com"
+
+# ---------------------------------------------------------------------------
+# Named environments
+# ---------------------------------------------------------------------------
+# Staging/preview environment — the only target wired up in this migration stage.
+# Production is intentionally NOT defined here yet: no cutover until a later stage.
+[env.staging]
+name = "biot-dashboard-staging"
+
+# [env.production]  ← intentionally left undefined. Add only at cutover time.

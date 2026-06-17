@@ -1,0 +1,18 @@
+{
+  "name": "biot-dashboard-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker — parallel migration target mirroring the Supabase Edge Function BIOT proxy. Not yet wired to production.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:staging": "wrangler deploy --env staging",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node ../../scripts/smoke-health.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240909.0",
+    "typescript": "^5.6.2",
+    "wrangler": "^3.78.0"
+  }
+}

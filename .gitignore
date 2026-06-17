@@ -15,5 +15,12 @@ supabase/.temp/
 # Local dev env
 .env.local
 
+# Cloudflare Worker (migration target) — deps, build output, local secrets
+cloudflare/worker/node_modules/
+cloudflare/worker/dist/
+cloudflare/worker/.wrangler/
+cloudflare/worker/.dev.vars
+node_modules/
+
 # OS
 .DS_Store

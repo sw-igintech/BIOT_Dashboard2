@@ -1,0 +1,51 @@
+name: CI
+
+# Validation only. Runs on PRs and on pushes to the migration branch.
+# Does NOT deploy anything and does NOT touch production.
+on:
+  pull_request:
+  push:
+    branches:
+      - "migration/**"
+
+permissions:
+  contents: read
+
+jobs:
+  worker-checks:
+    name: Worker typecheck + dry-run
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare/worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install worker deps
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck worker
+        run: npm run typecheck
+
+      - name: Wrangler dry-run build (no deploy, no secrets)
+        # --dry-run builds/bundles the Worker without uploading. Proves the entry
+        # point compiles for the Workers runtime. No Cloudflare credentials needed.
+        run: npx wrangler deploy --dry-run --outdir dist
+
+  frontend-checks:
+    name: Frontend syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Syntax-check dashboard.js
+        # Browser script, but `node --check` validates parse-level syntax.
+        run: node --check dashboard.js

@@ -1,0 +1,3 @@
+# Local dev vars for `wrangler dev` — copy to `.dev.vars` (gitignored) and fill in.
+# Never commit real values.
+BIOT_BASE_URL=<your-biot-base-url>

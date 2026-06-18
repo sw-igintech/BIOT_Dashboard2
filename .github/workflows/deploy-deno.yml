@@ -44,7 +44,7 @@ jobs:
           deno deploy create --dry-run \
             --token "$DENO_DEPLOY_TOKEN" \
             --org "$ORG" --app "$APP" \
-            --source local --entrypoint main.ts deno 2>&1 | tee dryrun.log
+            --source local --region us --entrypoint main.ts deno 2>&1 | tee dryrun.log
         # If this fails (e.g. bad token), the job stops here — nothing is created.
 
       - name: Create app + set env + deploy to production (real)
@@ -55,7 +55,7 @@ jobs:
           deno deploy create \
             --token "$DENO_DEPLOY_TOKEN" \
             --org "$ORG" --app "$APP" \
-            --source local --entrypoint main.ts deno 2>&1 | tee create.log
+            --source local --region us --entrypoint main.ts deno 2>&1 | tee create.log
           # 2) Set the runtime env var the backend needs.
           deno deploy env add --token "$DENO_DEPLOY_TOKEN" --org "$ORG" --app "$APP" \
             BIOT_BASE_URL "$BIOT_BASE_URL" 2>&1 | tee env.log || echo "env add non-zero (may already exist)"

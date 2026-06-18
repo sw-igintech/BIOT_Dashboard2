@@ -26,10 +26,16 @@ deno deploy create --org sw-igin --app biot-dashboard-staging \
 deno deploy env add --org sw-igin --app biot-dashboard-staging BIOT_BASE_URL <url>
 deno deploy --prod --org sw-igin --app biot-dashboard-staging --entrypoint main.ts deno
 ```
-`--region` is required. Auth via `--token` / `DENO_DEPLOY_TOKEN`. Executed automatically by
-`.github/workflows/deploy-deno.yml` using the `DENO_DEPLOY_TOKEN` repo secret. Re-deploys:
-`DENO_DEPLOY_TOKEN=… bash deno/deploy.sh`. (`deno deploy` writes a `deno.jsonc` config artifact —
-gitignored.)
+`--region` is required on `create`. Auth via `--token` / `DENO_DEPLOY_TOKEN`.
+
+**Workflow (`.github/workflows/deploy-deno.yml`) is now MANUAL (`workflow_dispatch`) only** — it
+no longer auto-runs on push (avoids noisy failures while iterating, and keeps deploys controlled).
+It does **not** call `create` (which prompts interactively on an existing app and would hang in CI);
+it only **redeploys**: `deno deploy --prod --org sw-igin --app biot-dashboard-staging deno`
+(top-level `deno deploy` has no `--entrypoint` flag — the entrypoint is auto-detected from
+`deno/main.ts`). Re-deploy by dispatching that workflow, or locally:
+`DENO_DEPLOY_TOKEN=… bash deno/deploy.sh`. First-time app creation is the `deno deploy create …`
+line above. (`deno deploy` writes a `deno.jsonc` config artifact — gitignored.)
 
 ## Why Deno Deploy fits this repo
 

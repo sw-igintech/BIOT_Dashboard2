@@ -1,0 +1,7 @@
+{
+  "//": "Deno Deploy app config for the BIOT proxy. Entrypoint is main.ts. No build step, no deps to install — plain Deno.serve. Deno Deploy supplies all permissions at runtime; the flags here are only for local `deno task`.",
+  "tasks": {
+    "start": "deno run --allow-net --allow-env main.ts",
+    "check": "deno check main.ts"
+  }
+}

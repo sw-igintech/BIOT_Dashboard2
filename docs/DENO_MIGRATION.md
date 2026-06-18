@@ -234,7 +234,8 @@ Browser (GitHub Pages, main) → Deno Deploy (biot-dashboard-staging.sw-igin.den
   (`stamshemyafe@gmail.com`) — still no credentials in the workspace; manufacturer + scoped views
   were validated.
 - Later/optional: a dedicated production-named Deno app/domain; decommission Supabase after the
-  fallback window; retire the obsolete `migration/cloudflare-runtime` branch.
+  fallback window. *(The obsolete `migration/cloudflare-runtime` branch has been retired — archived
+  as tag `archive/cloudflare-runtime` and the branch deleted.)*
 
 ## Go / no-go before cutover
 - [x] `deno/main.ts` entrypoint exists on `migration/deno-runtime`, `deno check` clean, parity PASS locally.

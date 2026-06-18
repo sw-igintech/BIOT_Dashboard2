@@ -54,8 +54,8 @@ Everything ships from **`main`**.
   → health smoke test. Can also be run manually (`workflow_dispatch`). The job is hard-guarded to
   `main` only (`if: github.ref == 'refs/heads/main'`), so it can never deploy the wrong branch.
 - **PR validation:** `.github/workflows/ci.yml` runs `deno check` + frontend/script syntax on PRs to `main`.
-- **Secrets (GitHub repo):** `DENO_DEPLOY_TOKEN` (a **new** Deno Deploy token — classic `deployctl`
-  does not work), `BIOT_BASE_URL`. `CLOUDFLARE_*` secrets are unused leftovers.
+- **Secrets (GitHub repo):** exactly two — `DENO_DEPLOY_TOKEN` (a **new** Deno Deploy token — classic
+  `deployctl` does not work), and `BIOT_BASE_URL`. (The old `CLOUDFLARE_*` secrets were deleted.)
 - **Manual backend deploy (local):** `DENO_DEPLOY_TOKEN=… bash deno/deploy.sh`.
 
 **Summary — automatic vs manual:**
@@ -81,11 +81,12 @@ re-run the deploy workflow on a reverted `main`.)
 
 - **Supabase** — was the production backend until 2026-06-18; now **fallback only**. Code:
   `supabase/functions/biot-dashboard/index.ts`, `supabase/config.toml`. Still deployed for rollback.
-- **Cloudflare Workers** — an earlier migration attempt, **abandoned/superseded by Deno**. Lives only
-  on branch `migration/cloudflare-runtime` (not merged to `main`). Kept for reference; `CLOUDFLARE_*`
-  secrets unused. Safe to delete the branch if desired:
-  `git push origin --delete migration/cloudflare-runtime`.
-- The `migration/deno-runtime` branch was fast-forward-merged into `main` and deleted.
+- **Cloudflare Workers** — an earlier migration attempt, **abandoned/superseded by Deno**, now retired.
+  The `migration/cloudflare-runtime` branch was deleted; the work is preserved only as the tag
+  **`archive/cloudflare-runtime`** (`git checkout archive/cloudflare-runtime` to inspect). It is not a
+  production path. The associated `CLOUDFLARE_*` repo secrets were deleted.
+- The `migration/deno-runtime` branch was fast-forward-merged into `main` and deleted. Only `main`
+  remains as a branch.
 
 ## 7. Backend contract (unchanged across runtimes)
 
@@ -108,8 +109,10 @@ and scope/distributor logic are documented in `docs/DENO_MIGRATION.md` and the p
   account `matan@igintech.com`). Manufacturer role + org/distributor **scopes** (via the manufacturer
   dropdown) were validated. Run when credentials exist.
 - **Decommission Supabase** after the fallback window — only when confident; until then keep it.
-- **Delete obsolete `migration/cloudflare-runtime` branch** (optional cleanup).
 - **Optional:** a dedicated production-named Deno app/custom domain instead of the `*-staging` name.
+
+*(Done in cleanup: the abandoned Cloudflare branch was retired to tag `archive/cloudflare-runtime`
+and `CLOUDFLARE_*` secrets deleted.)*
 
 ## 9. Validation / dev tooling
 

@@ -50,8 +50,7 @@ Source of truth is the **`main`** branch. Both layers ship from `main`:
 - PR validation: `.github/workflows/ci.yml` (`deno check` + frontend/script syntax) runs on PRs to `main`.
 - Secrets (GitHub repo): `DENO_DEPLOY_TOKEN`, `BIOT_BASE_URL` (used by the deploy workflow). The token
   must be a **new** Deno Deploy token (classic `deployctl` does not work — org `sw-igin` is on the new
-  Deno Deploy; the CLI is `deno deploy`). `CLOUDFLARE_*` secrets are leftover from the abandoned
-  Cloudflare path and are unused.
+  Deno Deploy; the CLI is `deno deploy`). These are the only two repo secrets.
 - Manual backend redeploy: dispatch the workflow, or locally `DENO_DEPLOY_TOKEN=… bash deno/deploy.sh`.
 
 ### Rollback (instant)
@@ -139,6 +138,7 @@ PREVIEW_BACKEND_URL=https://biot-dashboard-staging.sw-igin.deno.net node deno/pr
   ```
   (`verify_jwt = false`; authenticated by the user's own BIOT token.) `BIOT_USERNAME`/`BIOT_PASSWORD`
   are not used at runtime.
-- **Cloudflare Workers (abandoned):** an earlier migration attempt lives only on the
-  `migration/cloudflare-runtime` branch (not merged to `main`). It is **superseded by Deno** and kept
-  for reference only; `CLOUDFLARE_*` repo secrets are unused.
+- **Cloudflare Workers (abandoned, retired):** an earlier migration attempt, **superseded by Deno**.
+  Its branch was removed; the work is preserved only as the tag **`archive/cloudflare-runtime`**
+  (`git checkout archive/cloudflare-runtime` to inspect). It is **not** a production path and never was.
+  The associated `CLOUDFLARE_*` repo secrets have been deleted.

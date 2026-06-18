@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Parity harness: drive identical inputs through the Cloudflare Worker and the
-// Supabase Edge Function and deep-diff the responses. Uses ONE BIOT login token for
-// all dashboard/entity calls against BOTH backends, so upstream BIOT data is identical
+// Parity harness: drive identical inputs through a candidate backend (e.g. the Deno Deploy
+// app) and the Supabase Edge Function and deep-diff the responses. Uses ONE BIOT login token
+// for all dashboard/entity calls against BOTH backends, so upstream BIOT data is identical
 // and any difference is attributable to the proxy runtime — not to auth or data drift.
 //
 // No secrets embedded. Config via env:
-//   WORKER_URL        (default http://localhost:8787)
-//   SUPABASE_URL      (default production edge function)
+//   WORKER_URL        candidate backend base URL (e.g. the Deno Deploy app URL)
+//   SUPABASE_URL      (default production edge function — the comparison/fallback backend)
 //   SUPABASE_ANON_KEY (Supabase publishable key — already public in index.html)
 //   BIOT_USERNAME / BIOT_PASSWORD  (sourced from claude/biot_credentials.env)
 //
@@ -98,9 +98,9 @@ function compareDashboard(wj, sj) {
   // built deterministically, so a plain diff is fine; still classify here for clarity.
   for (const d of diff(w.scope, s.scope, "scope")) stable.push(d);
 
-  // Partial failures must match: if one backend silently degraded a widget (e.g. hit the
-  // Cloudflare subrequest limit) and the other did not, that is a STRUCTURAL difference,
-  // not telemetry drift. (Caught the gloves subrequest-limit blocker in stage 3.)
+  // Partial failures must match: if one backend silently degraded a widget (e.g. hit a runtime
+  // subrequest/time limit) and the other did not, that is a STRUCTURAL difference, not telemetry
+  // drift.
   const wpf = Object.keys(w.meta?.partialFailures || {}).sort().join(",");
   const spf = Object.keys(s.meta?.partialFailures || {}).sort().join(",");
   if (wpf !== spf) stable.push({ path: "meta.partialFailures.keys", a: wpf || "(none)", b: spf || "(none)" });

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Minimal smoke test: GET ?action=health against a deployed backend and assert ok:true.
-// Works against either runtime (Supabase Edge Function or Cloudflare Worker) — both
-// implement the `health` action and return { ok: true, backend, timestamp }.
+// Works against any backend that implements the `health` action (Deno Deploy — the active
+// production backend — or the Supabase fallback), returning { ok: true, backend, timestamp }.
 //
 // Usage:
 //   node scripts/smoke-health.mjs <base-url> [--retries N] [--delay MS]
 //   SMOKE_URL=<base-url> node scripts/smoke-health.mjs
 //
-// --retries/--delay tolerate first-deploy workers.dev propagation lag (Cloudflare 1042).
+// --retries/--delay tolerate first-deploy DNS/propagation lag on a freshly deployed URL.
 // Exit 0 on success, 1 on failure. No secrets required (health needs no auth).
 
 const args = process.argv.slice(2);

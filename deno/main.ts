@@ -448,8 +448,7 @@ async function getOrgDistributorBridges(config: BiotConfig, accessToken: string)
 
 // device_event page size. BIOT honors limit=1000 (verified live). Glove events are
 // high-volume (thousands/month); 1000/page means far fewer round-trips than 100/page. Deno
-// Deploy has no per-request subrequest cap (unlike Cloudflare Workers free tier), so this is
-// purely a latency/efficiency win here and keeps parity with the other runtimes.
+// Deploy has no per-request subrequest cap, so this is purely a latency/efficiency win.
 const EVENT_PAGE_SIZE = 1000;
 
 async function getGloveSummary(

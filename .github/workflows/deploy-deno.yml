@@ -36,36 +36,31 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Validate token + flags with a dry-run (creates nothing)
-        id: dryrun
-        run: |
-          set -o pipefail
-          # Dry-run authenticates to the NEW Deploy API and validates flags WITHOUT creating.
-          deno deploy create --dry-run \
-            --token "$DENO_DEPLOY_TOKEN" \
-            --org "$ORG" --app "$APP" \
-            --source local --region us --entrypoint main.ts deno 2>&1 | tee dryrun.log
-        # If this fails (e.g. bad token), the job stops here — nothing is created.
-
-      - name: Create app + set env + deploy to production (real)
+      - name: Deploy (idempotent): ensure app, set env, deploy to production
         id: deploy
         run: |
           set -x
-          # 1) Create the app from LOCAL source (no GitHub integration → main never involved).
+          # 1) Ensure the app exists (LOCAL source → main never involved). Tolerate "already exists"
+          #    on re-runs; the real deploy below is what must succeed.
           deno deploy create \
             --token "$DENO_DEPLOY_TOKEN" \
             --org "$ORG" --app "$APP" \
-            --source local --region us --entrypoint main.ts deno 2>&1 | tee create.log
-          # 2) Set the runtime env var the backend needs.
+            --source local --region us --entrypoint main.ts deno > create.log 2>&1
+          echo "create rc=$? (non-zero is OK if the app already exists)"
+          cat create.log || true
+          # 2) Ensure the runtime env var is present (idempotent).
           deno deploy env add --token "$DENO_DEPLOY_TOKEN" --org "$ORG" --app "$APP" \
-            BIOT_BASE_URL "$BIOT_BASE_URL" 2>&1 | tee env.log || echo "env add non-zero (may already exist)"
-          # 3) Deploy to production so the env var is live.
+            BIOT_BASE_URL "$BIOT_BASE_URL" > env.log 2>&1 || echo "env add non-zero (already exists is OK)"
+          # 3) Deploy to production from LOCAL source. THIS must succeed.
           deno deploy --prod \
             --token "$DENO_DEPLOY_TOKEN" \
             --org "$ORG" --app "$APP" \
-            --entrypoint main.ts deno 2>&1 | tee deploy.log || echo "redeploy non-zero (create may already have deployed)"
-          # 4) Extract the deployed URL (new Deploy uses .deno.net; classic used .deno.dev).
-          URL="$(grep -ohE 'https://[a-zA-Z0-9.-]+\.deno\.(net|dev)' create.log deploy.log | sort -u | tail -1)"
+            --entrypoint main.ts deno 2>&1 | tee deploy.log
+          DEPLOY_RC=${PIPESTATUS[0]}
+          [ "$DEPLOY_RC" = 0 ] || { echo "deno deploy --prod FAILED rc=$DEPLOY_RC"; exit 1; }
+          # 4) Extract the deployed URL (new Deploy uses .deno.net).
+          URL="$(grep -ohE 'https://[a-zA-Z0-9.-]+\.deno\.(net|dev)' deploy.log create.log | grep -vE '\-[a-z0-9]{8,}\.' | sort -u | tail -1)"
+          [ -n "$URL" ] || URL="$(grep -ohE 'https://[a-zA-Z0-9.-]+\.deno\.(net|dev)' deploy.log create.log | sort -u | tail -1)"
           echo "Deployed URL: $URL"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           { echo "### Deno Deploy (staging)"; echo "URL: $URL"; echo ""; \

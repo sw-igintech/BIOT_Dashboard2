@@ -36,7 +36,7 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Deploy (idempotent): ensure app, set env, deploy to production
+      - name: "Deploy (idempotent) — ensure app, set env, deploy to production"
         id: deploy
         run: |
           set -x

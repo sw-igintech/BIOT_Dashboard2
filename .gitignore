@@ -17,3 +17,7 @@ supabase/.temp/
 
 # OS
 .DS_Store
+
+# Deno Deploy CLI writes this config artifact on deploy — do not commit
+deno.jsonc
+deno/deno.jsonc

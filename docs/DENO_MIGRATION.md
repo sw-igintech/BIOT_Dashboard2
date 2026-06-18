@@ -6,6 +6,31 @@
 which still points at the Supabase Edge Function. Supabase remains the active backend. BIOT is
 the only source of truth. Nothing in this branch changes that.
 
+## ✅ DEPLOYED TO DENO (staging) — 2026-06-18
+
+The Deno backend is **live on the NEW Deno Deploy**, deployed from local source (never `main`):
+
+- **Production URL:** **`https://biot-dashboard-staging.sw-igin.deno.net`**
+- **App console:** `https://console.deno.com/sw-igin/biot-dashboard-staging` (org `sw-igin`, app `biot-dashboard-staging`, region `us`)
+- **Health:** `{"ok":true,"backend":"Deno Deploy"}` ✓
+- **Parity vs live Supabase (against the live `.deno.net` URL):** **10 pass / 3 warn (live telemetry drift only, 0 structural diffs) / 0 fail** — login, refresh, dashboard (all/org/distributor scopes), entity/settings, and all error envelopes match. `BIOT_BASE_URL` env var is set on the app.
+- This is **not** a production cutover — the production frontend still calls Supabase.
+
+### Classic vs NEW Deno Deploy (important lesson)
+`deployctl` is for **Deno Deploy Classic** and its API **rejected the token** ("bearer token is
+invalid"). Org `sw-igin` is on the **NEW Deno Deploy**, which uses the **`deno deploy`** CLI built
+into the Deno runtime. The working deploy command (local source, no GitHub integration):
+```
+deno deploy create --org sw-igin --app biot-dashboard-staging \
+  --source local --region us --entrypoint main.ts deno   # run from repo root; uploads only deno/
+deno deploy env add --org sw-igin --app biot-dashboard-staging BIOT_BASE_URL <url>
+deno deploy --prod --org sw-igin --app biot-dashboard-staging --entrypoint main.ts deno
+```
+`--region` is required. Auth via `--token` / `DENO_DEPLOY_TOKEN`. Executed automatically by
+`.github/workflows/deploy-deno.yml` using the `DENO_DEPLOY_TOKEN` repo secret. Re-deploys:
+`DENO_DEPLOY_TOKEN=… bash deno/deploy.sh`. (`deno deploy` writes a `deno.jsonc` config artifact —
+gitignored.)
+
 ## Why Deno Deploy fits this repo
 
 The current production backend (`supabase/functions/biot-dashboard/index.ts`) is **already
@@ -72,35 +97,28 @@ This is layered on top of the structural guarantee that `deno.dev` ≠ real prod
 
 ---
 
-## CHOSEN PATH (2026-06-18): deploy via `deployctl` CLI, not the UI
+## CHOSEN PATH (used): `deno deploy` CLI with `--source local`, via GitHub Actions
 
-To avoid the UI's "deploy main" behavior entirely, deployment is done with **`deployctl`**, which
-uploads only this branch's `deno/` files and **never touches `main`** (it bypasses Deno's GitHub
-auto-deploy integration). Script: `deno/deploy.sh`. It publishes a `*.deno.dev` URL that is
-isolated from the real production site (GitHub Pages + Supabase).
+Deployment is done with the NEW Deno Deploy CLI **`deno deploy`** (NOT classic `deployctl`),
+running in GitHub Actions (`.github/workflows/deploy-deno.yml`) with the `DENO_DEPLOY_TOKEN` repo
+secret. `--source local` uploads only this branch's `deno/` directory and **never touches `main`**
+(no GitHub auto-deploy integration). It publishes `https://biot-dashboard-staging.sw-igin.deno.net`,
+isolated from the real production site (GitHub Pages + Supabase). A `--dry-run` gate validates the
+token + flags first, so a bad token can't half-create an app. ✅ Completed — see the deployed
+section at the top.
 
-**Why this is the safest path:** `deployctl` uploads `deno/main.ts` from the working tree of the
-branch you run it on; `main` is not involved at any point. The result is the Deno project's
-production deployment at `<project>.deno.dev` — which is NOT the real production (the frontend
-still points at Supabase). No `git push`, no GitHub auto-build, no chance of building `main`.
+**Why this is the safest path:** the deploy uploads `deno/main.ts` from this branch only; `main`
+is not involved at any point. No `git push` to the app, no GitHub auto-build, no chance of building
+`main`. The token lives only in GitHub Actions secrets (never readable, never committed).
 
-**The one required credential — a Deno Deploy access token:**
-- *What:* a personal access token from the Deno dashboard → **Account → Settings → Access Tokens → New Access Token**.
-- *Why:* `deployctl` (and the Deno Deploy API) require authentication for any deploy. With no
-  token it falls back to interactive browser OAuth, which cannot run headlessly.
-- *Where used:* passed to `deployctl` via `--token` / `DENO_DEPLOY_TOKEN`, **only** in the local
-  shell during deploy. Never committed, never logged. Revoke it after the deploy if desired.
-- *No safer alternative:* the only tokenless path is the Deno UI "Create App" flow, which (a)
-  still needs a human click and (b) risks deploying `main` unless the branch is changed manually.
-
-Run (once the token exists):
+Run again (once the token exists):
 ```bash
 DENO_DEPLOY_TOKEN=<token> bash deno/deploy.sh        # deploys deno/main.ts, never main
 ```
 Then verify (all read-only, no production impact):
 ```bash
-node scripts/smoke-health.mjs https://<project>.deno.dev
-WORKER_URL=https://<project>.deno.dev SUPABASE_ANON_KEY=<publishable> \
+node scripts/smoke-health.mjs https://biot-dashboard-staging.sw-igin.deno.net
+WORKER_URL=https://biot-dashboard-staging.sw-igin.deno.net SUPABASE_ANON_KEY=<publishable> \
   BIOT_USERNAME=… BIOT_PASSWORD=… node scripts/parity-check.mjs
 ```
 
@@ -157,15 +175,19 @@ PREVIEW_BACKEND_URL=https://<app>.deno.dev   # (frontend preview, if desired)
 
 ## Cutover (LATER, separate, one line) and rollback
 
-- **Cutover** = point `index.html` `supabaseEdgeUrl` at the validated `…deno.dev` URL, in its own
-  small commit on `main`. **Not done here.**
+- **Cutover** = point `index.html` `supabaseEdgeUrl` at the validated Deno URL
+  (`https://biot-dashboard-staging.sw-igin.deno.net`, or a dedicated prod app), in its own small
+  commit on `main`. **Not done here.**
 - **Rollback** = `git revert` that one-line commit and push; GitHub Pages redeploys the
   Supabase-pointed `index.html`. Supabase stays live and untouched (keep it for weeks post-cutover).
 
 ## Go / no-go before cutover
 - [x] `deno/main.ts` entrypoint exists on `migration/deno-runtime`, `deno check` clean, parity PASS locally.
-- [ ] Deno app created from `migration/deno-runtime` (NOT main); `…deno.dev` URL known.
-- [ ] Smoke + parity + E2E green against the real `…deno.dev` URL.
+- [x] Deno app created from local source (NOT main); URL: `https://biot-dashboard-staging.sw-igin.deno.net`.
+- [x] Smoke + API parity green against the real `.deno.net` URL (10 pass / 3 warn-drift / 0 fail).
+- [ ] End-to-end **browser UI** pass against the `.deno.net` URL (point the preview server at it:
+      `PREVIEW_BACKEND_URL=https://biot-dashboard-staging.sw-igin.deno.net` — preview tooling lives on
+      the cloudflare branch; port it here if a UI pass is wanted before cutover).
 - [ ] Real-user UI pass for a real organization-role user and the real distributor user
       (`stamshemyafe@gmail.com`) — **still no credentials in the workspace** (only the manufacturer
       account is available); validate when credentials exist.

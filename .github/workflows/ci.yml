@@ -1,0 +1,36 @@
+name: CI
+
+# Validation only — runs on PRs to main and on pushes to non-main branches. Never deploys.
+# Catches broken backend/frontend code before it can reach production (main).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Typecheck Deno backend
+        run: deno check deno/main.ts
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Syntax-check frontend + scripts
+        run: |
+          node --check dashboard.js
+          node --check scripts/smoke-health.mjs
+          node --check scripts/parity-check.mjs

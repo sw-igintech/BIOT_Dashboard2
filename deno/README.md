@@ -1,13 +1,15 @@
-# biot-dashboard — Deno Deploy app (migration target)
+# biot-dashboard — Deno Deploy app (ACTIVE PRODUCTION BACKEND)
 
-Deno-native BIOT proxy for **Deno Deploy**. Faithful copy of the production Supabase Edge
+Deno-native BIOT proxy for **Deno Deploy**. Faithful port of the original Supabase Edge
 Function (`supabase/functions/biot-dashboard/index.ts`) — same `Deno.serve` handler, same
 `Deno.env` config, same request/response contract — plus two proven-safe deltas: `device_event`
 page size 1000, and an explicit `User-Agent`. Health/meta report `backend: "Deno Deploy"`.
 
-> ⚠️ **Not production.** The frontend (`index.html`) still points at Supabase. Deploying this
-> only publishes a `*.deno.dev` URL. Cutover is a separate, isolated step.
-> See `docs/DENO_MIGRATION.md`.
+> 🟢 **This is the live production backend** (since the 2026-06-18 cutover, commit `8721309`):
+> `https://biot-dashboard-staging.sw-igin.deno.net`. The frontend `index.html` points here.
+> Supabase remains deployed as an instant fallback. See `docs/PROJECT_STATE.md` and
+> `docs/DENO_MIGRATION.md`. Deploys ship automatically from `main` via
+> `.github/workflows/deploy-deno.yml`.
 
 ## Entrypoint & config
 

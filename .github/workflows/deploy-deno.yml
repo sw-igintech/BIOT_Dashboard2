@@ -1,19 +1,26 @@
-name: Deploy Deno (staging)
+name: Deploy Deno backend (production)
 
-# Deploys the Deno backend (deno/main.ts) to the NEW Deno Deploy using the `deno deploy` CLI
-# (built into the Deno runtime) with the DENO_DEPLOY_TOKEN repo secret.
+# PRODUCTION backend deploy. Since the 2026-06-18 cutover, `main` is production and the Deno Deploy
+# app `biot-dashboard-staging` (URL https://biot-dashboard-staging.sw-igin.deno.net) is the live
+# backend the GitHub Pages frontend calls.
 #
-# SAFETY: uses `--source local`, uploading ONLY the deno/ directory from THIS branch. It does NOT
-# use Deno's GitHub auto-deploy integration, so the `main` branch is NEVER built or deployed.
-# Publishes a Deno Deploy app URL isolated from real production (GitHub Pages + Supabase untouched).
-# This is NOT a production cutover.
+# Deploys deno/main.ts via the `deno deploy` CLI with `--source local` (uploads only the deno/
+# directory from the checked-out ref) and the DENO_DEPLOY_TOKEN repo secret.
 #
-# (deployctl was the WRONG tool — that is Deno Deploy *Classic*; org sw-igin is on the NEW Deploy,
-# whose token classic deployctl rejected as invalid. The new product uses `deno deploy`.)
+# SAFETY:
+#  - Triggers ONLY from `main` (push to main touching deno/**, or a manual dispatch). The job has a
+#    hard `if: github.ref == 'refs/heads/main'` guard, so a dispatch on any other branch is a no-op
+#    — production can never be deployed from the wrong branch.
+#  - A `deno check` gate must pass before deploying, so broken code can't ship.
+#  - Rollback for the backend = re-run this on a reverted main, or redeploy a previous revision from
+#    the Deno dashboard. Frontend rollback is independent (`git revert` the cutover commit).
 
 on:
-  # Manual only. The app is already created + validated; redeploys are a controlled action, not
-  # automatic on every push (that also avoids noisy failures while iterating on the branch).
+  push:
+    branches: [main]
+    paths:
+      - "deno/**"
+      - ".github/workflows/deploy-deno.yml"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +28,9 @@ permissions:
 
 jobs:
   deploy-deno:
-    name: deno deploy create (local source, never main)
+    name: deno deploy --prod (main only)
+    # Hard guard: production deploys only from main (covers manual dispatch on a wrong branch too).
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     env:
       DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
@@ -35,13 +44,12 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: "Redeploy deno/main.ts to production (idempotent)"
+      - name: Typecheck gate (deno check)
+        run: deno check deno/main.ts
+
+      - name: "Deploy deno/main.ts to production"
         id: deploy
         run: |
-          # The app `biot-dashboard-staging` was created once (see "First-time app creation" below).
-          # This recurring job only REDEPLOYS the current deno/main.ts from LOCAL source — it does
-          # NOT call `deno deploy create` (which goes interactive on an existing app and would hang
-          # in CI). `main` is never involved.
           # 1) Ensure the runtime env var is present (idempotent).
           deno deploy env add --token "$DENO_DEPLOY_TOKEN" --org "$ORG" --app "$APP" \
             BIOT_BASE_URL "$BIOT_BASE_URL" > env.log 2>&1 || echo "env add non-zero (already exists is OK)"
@@ -58,11 +66,10 @@ jobs:
           [ -n "$URL" ] || URL="$(grep -ohE 'https://[a-zA-Z0-9.-]+\.deno\.(net|dev)' deploy.log | sort -u | tail -1)"
           echo "Deployed URL: $URL"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-          { echo "### Deno Deploy (staging)"; echo "URL: $URL"; echo ""; \
-            echo "Local-source deploy of deno/main.ts; main never deployed; production frontend still on Supabase."; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Deno backend (production) deployed"; echo "URL: $URL"; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Smoke-test health (retry for first-deploy propagation)
+      - name: Smoke-test health (retry for propagation)
         run: |
           URL="${{ steps.deploy.outputs.url }}"
-          [ -n "$URL" ] || { echo "Could not determine deployed URL — see create.log/deploy.log"; exit 1; }
+          [ -n "$URL" ] || { echo "Could not determine deployed URL — see deploy.log"; exit 1; }
           node scripts/smoke-health.mjs "$URL" --retries 10 --delay 6000

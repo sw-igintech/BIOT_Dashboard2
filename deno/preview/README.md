@@ -3,9 +3,10 @@
 Run the **real production frontend** against the **live Deno Deploy backend** without touching
 production. Used for end-to-end UI validation.
 
-> ⚠️ Non-production only. Production `index.html` is never modified — it still points at Supabase.
-> This preview rewrites only the `DASHBOARD_CONFIG` block **in memory** and shows a teal
-> "PREVIEW — Deno backend" banner.
+> ⚠️ Local validation tool. It rewrites the `DASHBOARD_CONFIG` block **in memory** only and shows a
+> teal "PREVIEW — Deno backend" banner — the production `index.html` on disk is never modified.
+> (Note: since the v2.0 cutover, production `index.html` already points at the Deno backend; this
+> tool is for pointing the real frontend at any backend URL during testing.)
 
 ## 1. Serve the preview
 

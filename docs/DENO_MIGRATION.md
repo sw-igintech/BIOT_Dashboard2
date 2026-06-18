@@ -40,7 +40,8 @@ The Deno backend is **live on the NEW Deno Deploy**, deployed from local source 
 - **App console:** `https://console.deno.com/sw-igin/biot-dashboard-staging` (org `sw-igin`, app `biot-dashboard-staging`, region `us`)
 - **Health:** `{"ok":true,"backend":"Deno Deploy"}` ✓
 - **Parity vs live Supabase (against the live `.deno.net` URL):** **10 pass / 3 warn (live telemetry drift only, 0 structural diffs) / 0 fail** — login, refresh, dashboard (all/org/distributor scopes), entity/settings, and all error envelopes match. `BIOT_BASE_URL` env var is set on the app.
-- This is **not** a production cutover — the production frontend still calls Supabase.
+- *(At this stage this was staging only — not yet a cutover. The production cutover happened later;
+  see "✅ CUTOVER DONE" at the top of this doc.)*
 
 ### Classic vs NEW Deno Deploy (important lesson)
 `deployctl` is for **Deno Deploy Classic** and its API **rejected the token** ("bearer token is
@@ -196,7 +197,7 @@ Don't create via the GitHub auto-deploy flow. Two safe options:
 
 ---
 
-## After the app exists: validate (still no cutover)
+## (Historical, pre-cutover) After the app exists: validate
 
 ```bash
 node scripts/smoke-health.mjs https://<app>.deno.dev

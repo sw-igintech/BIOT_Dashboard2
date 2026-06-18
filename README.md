@@ -1,6 +1,12 @@
 # BIOT Devices Dashboard
 
-Static frontend on **GitHub Pages** backed by a **Supabase Edge Function** that proxies live BIOT API calls server-side.
+Static frontend on **GitHub Pages** backed by a **Deno Deploy** Worker that proxies live BIOT API calls server-side.
+
+> **Production runtime (since 2026-06-18 cutover, commit `8721309`):** the active backend is the
+> **Deno Deploy** app at `https://biot-dashboard-staging.sw-igin.deno.net` (`deno/main.ts`). The
+> **Supabase Edge Function remains deployed as an instant fallback** — roll back with
+> `git revert 8721309 && git push origin main`. See `docs/DENO_MIGRATION.md`. The Supabase-specific
+> sections below are retained for the fallback path and historical reference.
 
 ## Architecture
 

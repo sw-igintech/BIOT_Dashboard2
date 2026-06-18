@@ -1,10 +1,11 @@
-# Deno Deploy migration — safe preparation (NO cutover)
+# Deno Deploy migration — COMPLETE (production cut over to Deno)
 
-**Branch:** `migration/deno-runtime` (off `main`)
+**Merged to `main`** (was branch `migration/deno-runtime`, FF-merged).
 **Date:** 2026-06-18
-**Production status:** ✅ **Untouched.** GitHub Pages still serves `index.html` from `main`,
-which still points at the Supabase Edge Function. Supabase remains the active backend. BIOT is
-the only source of truth. Nothing in this branch changes that.
+**Production status:** 🟢 **LIVE ON DENO.** GitHub Pages serves `index.html` from `main`, which now
+points at the Deno Deploy backend (`https://biot-dashboard-staging.sw-igin.deno.net`). The Supabase
+Edge Function remains deployed and untouched as an **instant fallback**. BIOT is the only source of
+truth. See "✅ CUTOVER DONE" below for the commit, validation, and rollback.
 
 ## ✅ FRONTEND UI VALIDATED AGAINST DENO (preview) — 2026-06-18
 
@@ -204,13 +205,35 @@ WORKER_URL=https://<app>.deno.dev SUPABASE_ANON_KEY=<publishable> \
 PREVIEW_BACKEND_URL=https://<app>.deno.dev   # (frontend preview, if desired)
 ```
 
-## Cutover (LATER, separate, one line) and rollback
+## ✅ CUTOVER DONE — 2026-06-18 (production now on Deno)
 
-- **Cutover** = point `index.html` `supabaseEdgeUrl` at the validated Deno URL
-  (`https://biot-dashboard-staging.sw-igin.deno.net`, or a dedicated prod app), in its own small
-  commit on `main`. **Not done here.**
-- **Rollback** = `git revert` that one-line commit and push; GitHub Pages redeploys the
-  Supabase-pointed `index.html`. Supabase stays live and untouched (keep it for weeks post-cutover).
+- **Cutover commit:** `8721309` on `main` — one line in `index.html`: `supabaseEdgeUrl` changed from
+  the Supabase Edge Function to `https://biot-dashboard-staging.sw-igin.deno.net`. Nothing else
+  changed (the now-unused `supabaseAnonKey` left in place; the Deno backend ignores it).
+- **Active production backend:** **Deno Deploy** (`https://biot-dashboard-staging.sw-igin.deno.net`).
+  Production frontend: GitHub Pages serving `main` (`https://sw-igintech.github.io/BIOT_Dashboard2/`).
+- **Validated in real production after cutover** (Playwright against the live GitHub Pages site):
+  **19 pass / 1 warn (expected negative-path noise) / 0 fail**; all backend traffic → Deno,
+  **0 → Supabase**. login, refresh, logout, dashboard, table, charts, metrics, glove metrics,
+  search, filters, scope (manufacturer/org/distributor), device modal + settings entity fetch all OK.
+- **Supabase remains LIVE and untouched as fallback** (verified responding post-cutover). Keep it for
+  a safe window (e.g. 2–4 weeks) before any decommission.
+- **ROLLBACK (instant):** `git revert 8721309 && git push origin main` — GitHub Pages redeploys the
+  Supabase-pointed `index.html`; no backend redeploy needed; BIOT tokens are backend-agnostic so
+  sessions survive. (Production frontend reverts to Supabase in one Pages rebuild.)
+
+### Current runtime architecture (post-cutover)
+```
+Browser (GitHub Pages, main) → Deno Deploy (biot-dashboard-staging.sw-igin.deno.net) → BIOT APIs
+                                  ▲ Supabase Edge Function still deployed = instant fallback
+```
+
+### Remaining open items (non-blocking)
+- Real-user UI pass for a real organization-role user and the real distributor user
+  (`stamshemyafe@gmail.com`) — still no credentials in the workspace; manufacturer + scoped views
+  were validated.
+- Later/optional: a dedicated production-named Deno app/domain; decommission Supabase after the
+  fallback window; retire the obsolete `migration/cloudflare-runtime` branch.
 
 ## Go / no-go before cutover
 - [x] `deno/main.ts` entrypoint exists on `migration/deno-runtime`, `deno check` clean, parity PASS locally.

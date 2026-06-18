@@ -39,14 +39,17 @@ jobs:
       - name: "Deploy (idempotent) — ensure app, set env, deploy to production"
         id: deploy
         run: |
-          set -x
           # 1) Ensure the app exists (LOCAL source → main never involved). Tolerate "already exists"
-          #    on re-runs; the real deploy below is what must succeed.
-          deno deploy create \
-            --token "$DENO_DEPLOY_TOKEN" \
-            --org "$ORG" --app "$APP" \
-            --source local --region us --entrypoint main.ts deno > create.log 2>&1
-          echo "create rc=$? (non-zero is OK if the app already exists)"
+          #    on re-runs (default shell is `bash -e`, so the failure MUST be guarded explicitly);
+          #    the real deploy below is what must succeed.
+          if deno deploy create \
+               --token "$DENO_DEPLOY_TOKEN" \
+               --org "$ORG" --app "$APP" \
+               --source local --region us --entrypoint main.ts deno > create.log 2>&1; then
+            echo "create: app created"
+          else
+            echo "create: non-zero (app likely already exists) — continuing to redeploy"
+          fi
           cat create.log || true
           # 2) Ensure the runtime env var is present (idempotent).
           deno deploy env add --token "$DENO_DEPLOY_TOKEN" --org "$ORG" --app "$APP" \

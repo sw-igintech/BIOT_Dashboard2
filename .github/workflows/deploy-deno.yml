@@ -1,0 +1,58 @@
+name: Deploy Deno (staging)
+
+# Deploys the Deno backend (deno/main.ts) to Deno Deploy via deployctl, using the
+# DENO_DEPLOY_TOKEN repo secret. This path uploads ONLY the deno/ directory from THIS branch and
+# bypasses Deno's GitHub auto-deploy integration — so `main` is NEVER built or deployed.
+#
+# It publishes a *.deno.dev URL that is fully isolated from the real production site (GitHub
+# Pages + Supabase remain untouched). This is NOT a production cutover.
+#
+# Scoped to the migration branch only (push) plus manual dispatch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "migration/deno-runtime"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-deno:
+    name: Deploy deno/main.ts to Deno Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install deployctl
+        run: deno install -gArf jsr:@deno/deployctl
+
+      - name: Deploy (deno/main.ts only — never main)
+        id: deploy
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+          BIOT_BASE_URL: ${{ secrets.BIOT_BASE_URL }}
+          DENO_PROJECT: biot-dashboard-staging
+          DENO_ORG: sw-igin
+        run: |
+          export PATH="$HOME/.deno/bin:$PATH"
+          bash deno/deploy.sh | tee deploy.log
+          URL="$(grep -iE 'production' deploy.log | grep -oE 'https://[a-zA-Z0-9.-]+\.deno\.dev' | tail -1)"
+          if [ -z "$URL" ]; then URL="$(grep -oE 'https://[a-zA-Z0-9.-]+\.deno\.dev' deploy.log | tail -1)"; fi
+          echo "Deployed URL: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "### Deno Deploy (staging)" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This is a *.deno.dev URL only — production frontend still points at Supabase." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke-test health endpoint (retry for first-deploy propagation)
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          [ -n "$URL" ] || { echo "Could not determine deployed URL"; exit 1; }
+          node scripts/smoke-health.mjs "$URL" --retries 8 --delay 5000

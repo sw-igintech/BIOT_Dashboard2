@@ -72,7 +72,41 @@ This is layered on top of the structural guarantee that `deno.dev` ≠ real prod
 
 ---
 
-## EXACT operator steps in the Deno UI (do this — it is now safe)
+## CHOSEN PATH (2026-06-18): deploy via `deployctl` CLI, not the UI
+
+To avoid the UI's "deploy main" behavior entirely, deployment is done with **`deployctl`**, which
+uploads only this branch's `deno/` files and **never touches `main`** (it bypasses Deno's GitHub
+auto-deploy integration). Script: `deno/deploy.sh`. It publishes a `*.deno.dev` URL that is
+isolated from the real production site (GitHub Pages + Supabase).
+
+**Why this is the safest path:** `deployctl` uploads `deno/main.ts` from the working tree of the
+branch you run it on; `main` is not involved at any point. The result is the Deno project's
+production deployment at `<project>.deno.dev` — which is NOT the real production (the frontend
+still points at Supabase). No `git push`, no GitHub auto-build, no chance of building `main`.
+
+**The one required credential — a Deno Deploy access token:**
+- *What:* a personal access token from the Deno dashboard → **Account → Settings → Access Tokens → New Access Token**.
+- *Why:* `deployctl` (and the Deno Deploy API) require authentication for any deploy. With no
+  token it falls back to interactive browser OAuth, which cannot run headlessly.
+- *Where used:* passed to `deployctl` via `--token` / `DENO_DEPLOY_TOKEN`, **only** in the local
+  shell during deploy. Never committed, never logged. Revoke it after the deploy if desired.
+- *No safer alternative:* the only tokenless path is the Deno UI "Create App" flow, which (a)
+  still needs a human click and (b) risks deploying `main` unless the branch is changed manually.
+
+Run (once the token exists):
+```bash
+DENO_DEPLOY_TOKEN=<token> bash deno/deploy.sh        # deploys deno/main.ts, never main
+```
+Then verify (all read-only, no production impact):
+```bash
+node scripts/smoke-health.mjs https://<project>.deno.dev
+WORKER_URL=https://<project>.deno.dev SUPABASE_ANON_KEY=<publishable> \
+  BIOT_USERNAME=… BIOT_PASSWORD=… node scripts/parity-check.mjs
+```
+
+---
+
+## Alternative: operator steps in the Deno UI (fallback only)
 
 You are in the Create-App screen with org `sw-igin`, repo `sw-igintech/BIOT_Dashboard2`, and
 `BIOT_BASE_URL=https://api.dev.igin.biot-med.com` already entered. **Before clicking Create:**

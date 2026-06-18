@@ -21,3 +21,6 @@ supabase/.temp/
 # Deno Deploy CLI writes this config artifact on deploy — do not commit
 deno.jsonc
 deno/deno.jsonc
+
+# Node deps (e.g. local Playwright for preview E2E) — never commit
+node_modules/

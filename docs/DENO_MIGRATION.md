@@ -6,6 +6,31 @@
 which still points at the Supabase Edge Function. Supabase remains the active backend. BIOT is
 the only source of truth. Nothing in this branch changes that.
 
+## ✅ FRONTEND UI VALIDATED AGAINST DENO (preview) — 2026-06-18
+
+The **real production frontend** was driven end-to-end (real Chromium, Playwright) against the
+**live Deno backend** via a non-production preview, with **zero production changes**.
+
+- **Preview path:** `deno/preview/serve-preview.mjs` — serves the unmodified production frontend
+  but rewrites only `window.DASHBOARD_CONFIG` **in memory** to point at
+  `https://biot-dashboard-staging.sw-igin.deno.net` (+ a "PREVIEW — Deno backend" banner). No file
+  on disk changes; production `index.html` stays on Supabase (verified). E2E:
+  `deno/preview/e2e-preview.mjs`. See `deno/preview/README.md`.
+- **Result: 19 pass / 1 warn / 0 fail**, and **all 11 backend calls went to Deno, 0 to Supabase**.
+  Validated: login, bad-login error, dashboard load, machine table (117 rows), 4 charts, metric
+  widgets, glove metrics (761 events), search, filter chips, date/time filter + Apply reload,
+  manufacturer scope (`org:00000000-…` → 122 devices; `dist:f2f84f75-…`), device modal Status tab,
+  Settings tab `entity` fetch (HTTP 200), 401→refresh→retry recovery, logout.
+- **The one WARN** = expected negative-path console noise, all identical to Supabase: favicon
+  `404`; the deliberate bad-login `500` (`{"ok":false,"error":{"message":"Login Failed"}}` —
+  **identical on Deno and Supabase**, pre-existing); and the deliberate forced-refresh `401`.
+  **No Deno-specific issue found; nothing needed fixing.**
+- **Roles tested:** manufacturer (`matan@igintech.com`) directly; org + distributor **scopes** via
+  the manufacturer dropdown. A real organization-role user and the real distributor user
+  (`stamshemyafe@gmail.com`) were **not** tested as separate logins — **no credentials in the
+  workspace** (only the manufacturer account). Their login path is identical code; revalidate when
+  credentials exist.
+
 ## ✅ DEPLOYED TO DENO (staging) — 2026-06-18
 
 The Deno backend is **live on the NEW Deno Deploy**, deployed from local source (never `main`):
@@ -191,9 +216,8 @@ PREVIEW_BACKEND_URL=https://<app>.deno.dev   # (frontend preview, if desired)
 - [x] `deno/main.ts` entrypoint exists on `migration/deno-runtime`, `deno check` clean, parity PASS locally.
 - [x] Deno app created from local source (NOT main); URL: `https://biot-dashboard-staging.sw-igin.deno.net`.
 - [x] Smoke + API parity green against the real `.deno.net` URL (10 pass / 3 warn-drift / 0 fail).
-- [ ] End-to-end **browser UI** pass against the `.deno.net` URL (point the preview server at it:
-      `PREVIEW_BACKEND_URL=https://biot-dashboard-staging.sw-igin.deno.net` — preview tooling lives on
-      the cloudflare branch; port it here if a UI pass is wanted before cutover).
+- [x] End-to-end **browser UI** pass against the `.deno.net` URL (`deno/preview/`): 19 pass / 1 warn
+      (expected negative-path noise) / 0 fail; all traffic → Deno, 0 → Supabase.
 - [ ] Real-user UI pass for a real organization-role user and the real distributor user
       (`stamshemyafe@gmail.com`) — **still no credentials in the workspace** (only the manufacturer
       account is available); validate when credentials exist.

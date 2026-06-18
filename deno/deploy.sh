@@ -33,7 +33,6 @@ echo "Deploying app='$APP' org='$ORG' entrypoint=main.ts (local source — main 
 deno deploy --prod \
   --token "$DENO_DEPLOY_TOKEN" \
   --org "$ORG" --app "$APP" \
-  --entrypoint main.ts \
   .
 # A first-ever app must be created instead: see .github/workflows/deploy-deno.yml, or run
 #   deno deploy create --org "$ORG" --app "$APP" --source local --region us --entrypoint main.ts deno

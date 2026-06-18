@@ -12,10 +12,9 @@ name: Deploy Deno (staging)
 # whose token classic deployctl rejected as invalid. The new product uses `deno deploy`.)
 
 on:
+  # Manual only. The app is already created + validated; redeploys are a controlled action, not
+  # automatic on every push (that also avoids noisy failures while iterating on the branch).
   workflow_dispatch:
-  push:
-    branches:
-      - "migration/deno-runtime"
 
 permissions:
   contents: read
@@ -46,11 +45,12 @@ jobs:
           # 1) Ensure the runtime env var is present (idempotent).
           deno deploy env add --token "$DENO_DEPLOY_TOKEN" --org "$ORG" --app "$APP" \
             BIOT_BASE_URL "$BIOT_BASE_URL" > env.log 2>&1 || echo "env add non-zero (already exists is OK)"
-          # 2) Deploy to production from LOCAL source. THIS must succeed.
+          # 2) Deploy to production from LOCAL source (root-path = deno/; entrypoint auto-detected
+          #    from deno/main.ts — the top-level `deno deploy` has no --entrypoint flag). Must succeed.
           deno deploy --prod \
             --token "$DENO_DEPLOY_TOKEN" \
             --org "$ORG" --app "$APP" \
-            --entrypoint main.ts deno 2>&1 | tee deploy.log
+            deno 2>&1 | tee deploy.log
           DEPLOY_RC=${PIPESTATUS[0]}
           [ "$DEPLOY_RC" = 0 ] || { echo "deno deploy --prod FAILED rc=$DEPLOY_RC"; exit 1; }
           # 3) Extract the deployed URL (prefer the stable production URL, not the hashed preview).

@@ -335,6 +335,29 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     emptyGloveSummary(),
     (msg) => { widgetErrors.gloves = msg; },
   );
+  // Partial glove failure (some owner-orgs returned, others timed out upstream): surface it
+  // so the frontend can show "data may be incomplete" without discarding the counts we have.
+  if (typeof gloves.partialOrgFailures === "number" && gloves.partialOrgFailures > 0) {
+    widgetErrors.gloves = `Glove data unavailable for ${gloves.partialOrgFailures} organization(s) (BIOT upstream timeout); showing partial totals.`;
+  }
+  // Cartridges. Fetched only when the result set is bounded and actionable: for org-role users
+  // (locked to their own org — small set) and for a manufacturer who has picked a specific
+  // org/distributor scope. The manufacturer "all" view is intentionally skipped — it would pull
+  // thousands of cartridges (heavy payload, slow, and a wide fan-out that can trip BIOT rate
+  // limiting); instead the frontend shows a "select a scope" hint. BIOT ABAC already scopes the
+  // result; cartridgeMatchesScope additionally honors the manufacturer scope-dropdown selection.
+  const shouldFetchCartridges = viewer.role === "organization" || scope.kind !== "all";
+  let scopedCartridges: Record<string, unknown>[] = [];
+  if (shouldFetchCartridges) {
+    const rawCartridges = await safeWidget(
+      () => getCartridges(config, accessToken),
+      [] as unknown[],
+      (msg) => { widgetErrors.cartridges = msg; },
+    );
+    scopedCartridges = rawCartridges
+      .filter((c) => cartridgeMatchesScope(c, scope, viewer))
+      .map(normalizeCartridge);
+  }
 
   return {
     viewer,
@@ -361,6 +384,9 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     operational: getOperationalSummary(scopedDevices),
     gloves,
     sanitizer: getSanitizerSummary(scopedDevices),
+    // scopeHint=true → cartridges deliberately not fetched (manufacturer "all"); frontend shows
+    // "select an organization or distributor to view cartridges" instead of an empty table.
+    cartridges: { total: scopedCartridges.length, items: scopedCartridges, scopeHint: !shouldFetchCartridges },
     meta: {
       generatedAt: new Date().toISOString(),
       backend: "Deno Deploy",
@@ -424,6 +450,33 @@ async function getDistributors(config: BiotConfig, accessToken: string): Promise
   return all;
 }
 
+// Cartridge inventory entities (templateName "cartridge"). Confirmed live 2026-06-28.
+// IMPORTANT: the V3 search path already scopes to the "cartridge" template — do NOT add a
+// `_templateName` filter (BIOT now rejects it with REQUEST_VALIDATION_FAILED / HTTP 400).
+// BIOT ABAC scopes the result to what the caller may see (e.g. a distributor sees its
+// cartridges across the orgs it serves plus its <<Global>>-owned stock).
+async function getCartridges(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+  const LIMIT = 1000;
+  const PAGE_CAP = 50; // safety bound (~50k cartridges)
+  const all: unknown[] = [];
+  let page = 0;
+  // Sequential pagination (no parallel burst — a wide fan-out of concurrent BIOT calls can trip
+  // upstream rate limiting). This path only runs for org/distributor scopes, whose cartridge
+  // sets are small (one or two pages); the manufacturer "all" view does not fetch cartridges.
+  while (page <= PAGE_CAP) {
+    const payload = await fetchBiot(config, "GET", "/generic-entity/v3/generic-entities/cartridge", {
+      accessToken,
+      query: { searchRequest: JSON.stringify({ limit: LIMIT, page }) },
+    });
+    const items = extractItems(payload, ["data", "items", "results"]);
+    if (!items.length) break;
+    all.push(...items);
+    if (items.length < LIMIT) break;
+    page += 1;
+  }
+  return all;
+}
+
 // organization_to_distributor bridge entities (confirmed live 2026-05-19):
 // _ownerOrganization is the child organization; organization_distributor is the
 // reference to the distributor entity. Used to map orgs → distributor(s).
@@ -461,66 +514,117 @@ async function getGloveSummary(
   // we query each owner-org and post-filter by the in-scope device ids.
   allowedDeviceIds: Set<string> | null,
 ): Promise<Record<string, unknown>> {
+  const orgIds = organizationIds.filter((id) => !!id);
+
+  // Query each owner-org independently and IN PARALLEL. Two reasons:
+  //   1. Resilience: BIOT's device_event ABAC expansion fails (timeout → 414) for some
+  //      tokens on some orgs (notably large-distributor tokens on the manufacturer root
+  //      org). A single failing org must not zero out the entire glove widget — only the
+  //      org(s) that actually failed are dropped, and the rest still count.
+  //   2. Latency: with the 15s per-call timeout, sequential querying of N orgs could cost
+  //      up to N×15s. Parallel querying bounds the worst case to ~one timeout window.
+  const results = await Promise.all(orgIds.map(async (organizationId) => {
+    try {
+      const { counts, total } = await getGloveEventsForOrg(
+        config, accessToken, organizationId, dateRange, allowedDeviceIds,
+      );
+      return { ok: true as const, counts, total };
+    } catch (e) {
+      return { ok: false as const, organizationId, message: e instanceof Error ? e.message : "failed" };
+    }
+  }));
+
   const counts = zeroCounts(GLOVE_BREAKDOWN);
   let total = 0;
-
-  for (const organizationId of organizationIds) {
-    if (!organizationId) continue;
-    let page = 0;
-
-    while (true) {
-      const searchRequest = {
-        filter: {
-          event_code: { eq: "GLOVE_TAKEN" },
-          "_ownerOrganization.id": { eq: organizationId },
-          // Time filtering:
-          // fromIso and toIso are full UTC ISO strings built by the frontend from the
-          // user's selected local date+time, converted to UTC via Date.toISOString().
-          // BIOT's _creationTime stores timestamps in UTC.
-          // This means the filter is: "show events where _creationTime is between
-          // fromIso and toIso (both in UTC)".
-          // The frontend converts: local 00:00 → UTC equivalent. This is correct behavior
-          // because users expect to filter by their local clock.
-          // Limitation: if the BIOT Grafana dashboard uses a different configured timezone,
-          // results may differ. This has not been independently verified.
-          _creationTime: { from: dateRange.fromIso, to: dateRange.toIso },
-        },
-        limit: EVENT_PAGE_SIZE,
-        page,
-      };
-
-      const payload = await fetchBiot(
-        config, "GET",
-        "/generic-entity/v3/generic-entities/device_event",
-        { accessToken, query: { searchRequest: JSON.stringify(searchRequest) } },
-      );
-
-      const items = extractItems(payload, ["items", "data", "results", "rows", "entities", "genericEntities"]);
-      if (!items.length) break;
-
-      for (const item of items) {
-        if (allowedDeviceIds) {
-          // device_event.device_event is the reference to the source device.
-          // .id holds the device's `_id` string.
-          const deviceRef = (item as Record<string, unknown>).device_event;
-          const deviceId = deviceRef && typeof deviceRef === "object"
-            ? String((deviceRef as Record<string, unknown>).id ?? "")
-            : "";
-          if (!deviceId || !allowedDeviceIds.has(deviceId)) continue;
-        }
-        const norm = normalizeGloveSize((item as Record<string, unknown>).event_cartridge_size);
-        counts[norm.key] += 1;
-        total += 1;
-      }
-
-      const totalPages = extractTotalPages(payload);
-      if (totalPages !== null && page + 1 >= totalPages) break;
-      if (items.length < EVENT_PAGE_SIZE) break;
-      page += 1;
+  let failedOrgs = 0;
+  for (const r of results) {
+    if (r.ok) {
+      total += r.total;
+      for (const [k, v] of Object.entries(r.counts)) counts[k] = (counts[k] ?? 0) + v;
+    } else {
+      failedOrgs += 1;
     }
   }
 
-  return { total, counts, breakdown: buildBreakdown(counts, GLOVE_BREAKDOWN) };
+  // If EVERY org failed, surface it as a full widget failure (safeWidget marks
+  // meta.partialFailures.gloves and the frontend renders an empty glove chart) rather
+  // than silently reporting a real "0 gloves".
+  if (orgIds.length > 0 && failedOrgs === orgIds.length) {
+    throw new Error("Glove events could not be loaded for any organization (BIOT upstream timeout).");
+  }
+
+  const summary: Record<string, unknown> = { total, counts, breakdown: buildBreakdown(counts, GLOVE_BREAKDOWN) };
+  // Partial failure: some orgs returned, some didn't. Report how many were dropped so
+  // buildDashboard can flag it in meta.partialFailures without hiding the data we do have.
+  if (failedOrgs > 0) summary.partialOrgFailures = failedOrgs;
+  return summary;
+}
+
+// Paginate GLOVE_TAKEN events for a single owner-org. Throws on the first BIOT error so the
+// caller can isolate per-org failures.
+async function getGloveEventsForOrg(
+  config: BiotConfig,
+  accessToken: string,
+  organizationId: string,
+  dateRange: DateRange,
+  allowedDeviceIds: Set<string> | null,
+): Promise<{ counts: Record<string, number>; total: number }> {
+  const counts = zeroCounts(GLOVE_BREAKDOWN);
+  let total = 0;
+  let page = 0;
+
+  while (true) {
+    const searchRequest = {
+      filter: {
+        event_code: { eq: "GLOVE_TAKEN" },
+        "_ownerOrganization.id": { eq: organizationId },
+        // Time filtering:
+        // fromIso and toIso are full UTC ISO strings built by the frontend from the
+        // user's selected local date+time, converted to UTC via Date.toISOString().
+        // BIOT's _creationTime stores timestamps in UTC.
+        // This means the filter is: "show events where _creationTime is between
+        // fromIso and toIso (both in UTC)".
+        // The frontend converts: local 00:00 → UTC equivalent. This is correct behavior
+        // because users expect to filter by their local clock.
+        // Limitation: if the BIOT Grafana dashboard uses a different configured timezone,
+        // results may differ. This has not been independently verified.
+        _creationTime: { from: dateRange.fromIso, to: dateRange.toIso },
+      },
+      limit: EVENT_PAGE_SIZE,
+      page,
+    };
+
+    const payload = await fetchBiot(
+      config, "GET",
+      "/generic-entity/v3/generic-entities/device_event",
+      { accessToken, query: { searchRequest: JSON.stringify(searchRequest) } },
+    );
+
+    const items = extractItems(payload, ["items", "data", "results", "rows", "entities", "genericEntities"]);
+    if (!items.length) break;
+
+    for (const item of items) {
+      if (allowedDeviceIds) {
+        // device_event.device_event is the reference to the source device.
+        // .id holds the device's `_id` string.
+        const deviceRef = (item as Record<string, unknown>).device_event;
+        const deviceId = deviceRef && typeof deviceRef === "object"
+          ? String((deviceRef as Record<string, unknown>).id ?? "")
+          : "";
+        if (!deviceId || !allowedDeviceIds.has(deviceId)) continue;
+      }
+      const norm = normalizeGloveSize((item as Record<string, unknown>).event_cartridge_size);
+      counts[norm.key] += 1;
+      total += 1;
+    }
+
+    const totalPages = extractTotalPages(payload);
+    if (totalPages !== null && page + 1 >= totalPages) break;
+    if (items.length < EVENT_PAGE_SIZE) break;
+    page += 1;
+  }
+
+  return { counts, total };
 }
 
 function emptyGloveSummary(): Record<string, unknown> {
@@ -659,6 +763,49 @@ function deviceMatchesScope(device: unknown, scope: ResolvedScope, viewer: Viewe
   }
   // explicit organization selection (manufacturer scope dropdown)
   return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
+}
+
+// Cartridge scope match — mirrors deviceMatchesScope. Org-role users and the manufacturer
+// "all" view are never filtered (trust BIOT ABAC). A manufacturer org selection matches by
+// owner-org; a distributor selection matches by cartridge_distributor.id OR child-org membership.
+function cartridgeMatchesScope(cartridge: unknown, scope: ResolvedScope, viewer: Viewer): boolean {
+  if (viewer.role === "organization") return true;
+  if (scope.kind === "all") return true;
+
+  const ownerOrgId = firstNonEmpty([
+    nestedGet(cartridge, ["_ownerOrganization", "id"]),
+    nestedGet(cartridge, ["ownerOrganization", "id"]),
+  ]) as string | null;
+  const distId = nestedGet(cartridge, ["cartridge_distributor", "id"]) as string | null;
+
+  if (scope.kind === "distributor") {
+    if (distId && distId === scope.id) return true;
+    return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
+  }
+  return !!ownerOrgId && scope.organizationIds.includes(ownerOrgId);
+}
+
+// Normalize a cartridge entity for the frontend. The user-facing "cartridge number" is
+// sticker_id. cartridge_distributor is a reference object { id, name }; _ownerOrganization
+// may be a real org or the special "<<Global>>" owner for distributor-held stock.
+function normalizeCartridge(cartridge: unknown): Record<string, unknown> {
+  const c = cartridge as Record<string, unknown>;
+  const owner = c._ownerOrganization && typeof c._ownerOrganization === "object"
+    ? (c._ownerOrganization as Record<string, unknown>) : {};
+  return {
+    id: String(firstNonEmpty([c._id, c.id]) ?? "Unknown cartridge"),
+    stickerId: c.sticker_id ?? null,
+    name: firstNonEmpty([c._name]) as string | null,
+    size: firstNonEmpty([c.cartridge_size]) as string | null,
+    nfcId: firstNonEmpty([c.cartridge_nfc_id]) as string | null,
+    organizationId: firstNonEmpty([owner.id, owner._id]) as string | null,
+    organizationName: firstNonEmpty([owner.name, owner.displayName, owner.label]) as string | null,
+    distributorId: nestedGet(c, ["cartridge_distributor", "id"]) as string | null,
+    distributorName: nestedGet(c, ["cartridge_distributor", "name"]) as string | null,
+    amount: typeof c.amount === "number" ? c.amount : null,
+    currentAmount: typeof c.current_amount === "number" ? c.current_amount : null,
+    isEmpty: typeof c.is_empty === "boolean" ? c.is_empty : null,
+  };
 }
 
 function normalizeDevice(device: unknown): NormalizedDevice {
@@ -993,6 +1140,15 @@ function dateOnly(d: Date): string {
 // HTTP helper
 // ---------------------------------------------------------------------------
 
+// Per-call upstream timeout. BIOT's generic-entity (device_event) endpoint performs an
+// ABAC permission expansion whose cost scales with the caller's permitted-entity set. For
+// large-distributor tokens that expansion takes ~85-90s and then fails (HTTP 414), which
+// previously stalled the whole dashboard right up against the frontend's 90s request
+// timeout (intermittent "Unable to load dashboard data right now"). Every legitimate BIOT
+// call here returns in ~1-2s, so a 15s ceiling fails the pathological call fast while never
+// tripping on a healthy one. (Confirmed live 2026-06-28.)
+const BIOT_FETCH_TIMEOUT_MS = 15000;
+
 async function fetchBiot(
   config: BiotConfig, method: string, path: string,
   options: { accessToken?: string; body?: unknown; query?: Record<string, string>; expectedStatuses?: number[]; baseUrl?: string } = {},
@@ -1005,7 +1161,19 @@ async function fetchBiot(
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
   const init: RequestInit = { method, headers };
   if (options.body !== undefined) { headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }
-  const res = await fetch(url, init);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BIOT_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error(`BIOT request timed out after ${BIOT_FETCH_TIMEOUT_MS / 1000}s (${path}).`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await res.text();
   let payload: unknown;
   try { payload = JSON.parse(text); } catch { throw new Error("BIOT returned a non-JSON response."); }

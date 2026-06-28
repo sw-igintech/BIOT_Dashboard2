@@ -70,6 +70,8 @@ const state = {
   selectedDeviceId: null,
   // machineSearch: live partial-match search term for machine IDs.
   machineSearch: "",
+  // cartridgeSearch: live partial-match search term for cartridge IDs.
+  cartridgeSearch: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -192,6 +194,12 @@ function wireUi() {
   document.getElementById("machineSearch").addEventListener("input", (e) => {
     state.machineSearch = e.target.value.trim().toLowerCase();
     if (state.summary) renderMachinesTable(state.summary);
+  });
+
+  // Cartridge search — live filter by cartridge ID
+  document.getElementById("cartridgeSearch").addEventListener("input", (e) => {
+    state.cartridgeSearch = e.target.value.trim().toLowerCase();
+    if (state.summary) renderCartridgesTable(state.summary);
   });
 
   // Modal: close on backdrop click (click outside the panel card)
@@ -494,6 +502,7 @@ function renderSummary(summary) {
   upsertChart("operationalChart", "operational", summary.operational.breakdown, summary.operational.total, "Devices");
 
   renderMachinesTable(summary);
+  renderCartridgesTable(summary);
 }
 
 // ---------------------------------------------------------------------------
@@ -592,7 +601,31 @@ function normalizeDashboardSummary(summary) {
     operational: normalizeChartSection(source.operational, OPERATIONAL_BREAKDOWN),
     gloves: normalizeChartSection(source.gloves, GLOVE_BREAKDOWN),
     sanitizer: normalizeSanitizerSection(source.sanitizer),
+    cartridges: normalizeCartridges(source.cartridges),
     meta: source.meta && typeof source.meta === "object" ? source.meta : {},
+  };
+}
+
+function normalizeCartridges(section) {
+  const source = section && typeof section === "object" ? section : {};
+  const items = Array.isArray(source.items) ? source.items.map(normalizeCartridgeItem) : [];
+  return { total: items.length, items, scopeHint: source.scopeHint === true };
+}
+
+function normalizeCartridgeItem(c) {
+  const src = c && typeof c === "object" ? c : {};
+  const sticker = src.stickerId !== undefined && src.stickerId !== null ? String(src.stickerId) : null;
+  return {
+    id: src.id ? String(src.id) : "Unknown",
+    // The user-facing cartridge number is the sticker id; fall back to entity name.
+    label: sticker || (src.name ? String(src.name) : "—"),
+    stickerId: sticker,
+    size: src.size ? String(src.size) : null,
+    organizationName: src.organizationName ? String(src.organizationName) : null,
+    distributorName: src.distributorName ? String(src.distributorName) : null,
+    amount: Number.isFinite(Number(src.amount)) ? Number(src.amount) : null,
+    currentAmount: Number.isFinite(Number(src.currentAmount)) ? Number(src.currentAmount) : null,
+    isEmpty: typeof src.isEmpty === "boolean" ? src.isEmpty : null,
   };
 }
 
@@ -734,6 +767,68 @@ function renderMachinesTable(summary) {
     row.appendChild(buildStatusCell(device.connectionStatus));
     body.appendChild(row);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Cartridges table (inventory — owner org / distributor scoped by BIOT ABAC)
+// ---------------------------------------------------------------------------
+
+function renderCartridgesTable(summary) {
+  const section = summary.cartridges || { items: [], total: 0, scopeHint: false };
+  const body = document.getElementById("cartridgesTableBody");
+  const empty = document.getElementById("cartridgesEmpty");
+  const hint = document.getElementById("cartridgesHint");
+  const countBadge = document.getElementById("cartridgesCount");
+  if (!body) return;
+  body.innerHTML = "";
+
+  // Manufacturer "all" view: backend intentionally does not fetch cartridges (too many).
+  if (section.scopeHint) {
+    countBadge.textContent = "—";
+    empty.classList.add("hidden");
+    hint.classList.remove("hidden");
+    return;
+  }
+  hint.classList.add("hidden");
+
+  const searchTerm = state.cartridgeSearch || "";
+  const items = (section.items || []).filter((c) => {
+    if (!searchTerm) return true;
+    return (c.label && c.label.toLowerCase().includes(searchTerm)) ||
+      (c.stickerId && c.stickerId.toLowerCase().includes(searchTerm));
+  });
+
+  countBadge.textContent = formatNumber(items.length);
+
+  if (!items.length) {
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+
+  items.forEach((c) => {
+    const row = document.createElement("tr");
+    row.appendChild(buildTextCell(c.label, "device-id"));
+    row.appendChild(buildTextCell(c.size ? formatGloveSizeLabel(c.size) : "—"));
+    row.appendChild(buildTextCell(c.distributorName || "—"));
+    row.appendChild(buildTextCell(c.organizationName || "—"));
+    row.appendChild(buildTextCell(formatCartridgeAmount(c)));
+    row.appendChild(buildStatusCell(c.isEmpty === true ? "Empty" : "In Stock"));
+    body.appendChild(row);
+  });
+}
+
+function formatGloveSizeLabel(size) {
+  const map = { s: "Small", small: "Small", m: "Medium", medium: "Medium", l: "Large", large: "Large", xl: "Extra Large", extra_large: "Extra Large", "extra large": "Extra Large" };
+  const key = String(size).trim().toLowerCase();
+  return map[key] || String(size);
+}
+
+function formatCartridgeAmount(c) {
+  if (c.currentAmount === null && c.amount === null) return "—";
+  const current = c.currentAmount === null ? "?" : formatNumber(c.currentAmount);
+  const total = c.amount === null ? "?" : formatNumber(c.amount);
+  return `${current} / ${total}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1269,9 @@ function statusClassName(label) {
   if (normalized === "available") return "status-available";
   if (normalized === "unavailable") return "status-unavailable";
   if (normalized === "operational") return "status-operational";
+  // Cartridge inventory statuses reuse the sanitizer color scheme.
+  if (normalized === "instock") return "status-available";
+  if (normalized === "empty") return "status-unavailable";
   return "status-unknown";
 }
 

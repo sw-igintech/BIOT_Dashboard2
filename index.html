@@ -14,8 +14,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr" defer></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
-  <link rel="stylesheet" href="./dashboard.css?v=20260519-1" />
-  <script src="./dashboard.js?v=20260519-1" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260628-1" />
+  <script src="./dashboard.js?v=20260628-1" defer></script>
 </head>
 <body>
 
@@ -196,6 +196,46 @@
 
           <div id="machinesEmpty" class="empty-state hidden">
             No machines found for this filter.
+          </div>
+        </article>
+
+      </section>
+
+      <!-- Cartridges table -->
+      <section id="cartridgesTableSection" class="table-grid">
+        <article class="card table-card">
+          <div class="card-header">
+            <div class="table-title-row">
+              <h3>Cartridges</h3>
+            </div>
+            <div id="cartridgesCount" class="count-badge">0</div>
+          </div>
+
+          <div class="table-search-row">
+            <input id="cartridgeSearch" type="search" placeholder="Search by cartridge ID…" class="table-search-input" autocomplete="off" />
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cartridge</th>
+                  <th>Size</th>
+                  <th>Distributor</th>
+                  <th>Owner Org</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="cartridgesTableBody"></tbody>
+            </table>
+          </div>
+
+          <div id="cartridgesEmpty" class="empty-state hidden">
+            No cartridges found.
+          </div>
+          <div id="cartridgesHint" class="empty-state hidden">
+            Select an organization or distributor above to view its cartridges.
           </div>
         </article>
 

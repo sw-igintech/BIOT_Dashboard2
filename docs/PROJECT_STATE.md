@@ -4,6 +4,17 @@
 how it deploys, how to roll back, what is historical, and what remains open. Last updated for the
 **v2.0** release (Supabase → Deno production cutover), 2026-06-18.
 
+> **UPDATE 2026-06-29 — BIOT-ABAC hardening + cartridge view (live on `main`, HEAD `35af98c`).**
+> Fixes the post-BIOT-permission-change fallout: (1) a per-call BIOT timeout + parallel/isolated
+> glove aggregation so large-distributor tokens no longer hang ~90 s ("Unable to load…") — they now
+> load in ~16 s and degrade gloves gracefully; (2) a new **Cartridges** table (org/distributor
+> scoped; manufacturer "all" shows a "select a scope" hint). The Supabase fallback carries the same
+> fixes (+ `device_event` page size 100→1000). Deployed via the normal flow and re-verified live
+> (D1/D2/EC1 + manufacturer regression). Full writeup + rollback:
+> `claude/INVESTIGATION_2026-06-28_slow-load_and_cartridges.md` (§10).
+> **Known upstream defect (BIOT-side, not ours):** `device_event` ABAC times out (→414) for
+> large-distributor tokens, so those users show 0 gloves — now handled gracefully.
+
 ---
 
 ## 1. What this project is

@@ -1203,11 +1203,15 @@ const BIOT_FETCH_TIMEOUT_MS = 15000;
 // Patient budget for the async glove path ONLY. BIOT's generic-entity `device_event` endpoint runs
 // an ABAC permission expansion whose cost scales with the caller's permitted-entity set; for a
 // large-distributor token permitted into the manufacturer root org it takes ~90s before BIOT itself
-// responds (with HTTP 414 — proven deterministic, runs ~89-91s, 2026-06-30). Because gloves are now
-// loaded OFF the dashboard critical path (separate `gloves` action), we can afford to wait out that
-// full ~90s so that any token whose `device_event` would eventually SUCCEED gets its data, instead
-// of being cut off prematurely. 120s covers the observed ~90s with margin and still caps a true hang.
-const GLOVE_FETCH_TIMEOUT_MS = 120000;
+// responds (with HTTP 414 — proven deterministic, ~89-91s, 2026-06-30). Because gloves are loaded
+// OFF the dashboard critical path (separate `gloves` action) we can afford to wait this out, so any
+// token whose `device_event` would eventually SUCCEED gets its data instead of being cut off early.
+// CEILING: Deno Deploy aborts a request at ~116s (503 DEPLOYMENT_TIMED_OUT, observed live), so the
+// whole `gloves` request must finish under that. 85s here → total ~88s (a few seconds of context
+// resolution + the parallel device_event calls), a clean response with comfortable margin. That is
+// the practical patience ceiling for a single request on this platform; going higher would require a
+// poll/background-job architecture, which is unjustified since the failing path is a deterministic 414.
+const GLOVE_FETCH_TIMEOUT_MS = 85000;
 
 async function fetchBiot(
   config: BiotConfig, method: string, path: string,

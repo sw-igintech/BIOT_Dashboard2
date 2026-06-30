@@ -1184,8 +1184,9 @@ const BIOT_FETCH_TIMEOUT_MS = 15000;
 
 // Patient budget for the async glove path ONLY (see deno/main.ts for the full rationale): BIOT's
 // `device_event` ABAC expansion takes ~90s for large-distributor tokens before BIOT itself responds.
-// Gloves are off the dashboard critical path, so we wait out that ~90s rather than giving up early.
-const GLOVE_FETCH_TIMEOUT_MS = 120000;
+// Gloves are off the dashboard critical path, so we wait it out rather than giving up early — but
+// kept under the platform's ~116s single-request limit (total ~88s) so the response stays clean.
+const GLOVE_FETCH_TIMEOUT_MS = 85000;
 
 async function fetchBiot(
   config: BiotConfig, method: string, path: string,

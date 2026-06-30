@@ -196,6 +196,13 @@ button
   line-height: 1.45;
 }
 
+.glove-status-subtext
+{
+  font-size: 0.74rem;
+  color: var(--muted-light);
+  line-height: 1.4;
+}
+
 .glove-status-icon
 {
   font-size: 1.5rem;

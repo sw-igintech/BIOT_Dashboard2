@@ -49,6 +49,12 @@ const OPERATIONAL_BREAKDOWN = [
 
 const GENERIC_REQUEST_ERROR = "Unable to load dashboard data right now. Please try again.";
 const REQUEST_TIMEOUT_MS = 90000;
+// Gloves load asynchronously, off the main dashboard's critical path. BIOT's device_event ABAC
+// expansion can take ~90s to respond for large-distributor scopes, so the glove request is given a
+// longer, patient budget (must exceed the backend's 120s device_event budget + overhead) — the
+// glove loading indicator stays visible for this whole window and only then resolves to a terminal
+// state. This never affects the main dashboard, which uses REQUEST_TIMEOUT_MS and returns fast.
+const GLOVE_REQUEST_TIMEOUT_MS = 150000;
 
 // ---------------------------------------------------------------------------
 // Session timeout policy
@@ -566,7 +572,7 @@ function setGloveState(kind, payload) {
     if (statusEl) {
       statusEl.classList.remove("hidden");
       statusEl.innerHTML = kind === "loading"
-        ? `<div class="glove-status-inner">${GLOVE_SVG}<div class="glove-status-text">Loading glove data…</div></div>`
+        ? `<div class="glove-status-inner">${GLOVE_SVG}<div class="glove-status-text">Loading glove data…</div><div class="glove-status-subtext">This can take a minute or two for large accounts.</div></div>`
         : `<div class="glove-status-inner"><div class="glove-status-icon" aria-hidden="true">⚠</div><div class="glove-status-text">${payload || "Glove metrics are temporarily unavailable."}</div></div>`;
     }
     return;
@@ -601,7 +607,9 @@ function setGloveState(kind, payload) {
 async function refreshGloves(params, requestId) {
   setGloveState("loading");
   try {
-    const data = await appsScriptRequest({ ...params, action: "gloves" });
+    // Patient request: keep the glove load running in the background (loading indicator visible)
+    // long enough for BIOT's slow device_event path to finish, instead of giving up early.
+    const data = await appsScriptRequest({ ...params, action: "gloves" }, GLOVE_REQUEST_TIMEOUT_MS);
     // Drop a stale response if a newer dashboard refresh has started since.
     if (requestId !== state.requestId) return;
     const glovesSection = normalizeChartSection(data && data.gloves, GLOVE_BREAKDOWN);
@@ -1402,7 +1410,7 @@ function destroyCharts() {
 // HTTP: dashboard request (GET with x-biot-token + 401 refresh retry)
 // ---------------------------------------------------------------------------
 
-async function appsScriptRequest(params) {
+async function appsScriptRequest(params, timeoutMs) {
   if (!auth.isAuthenticated()) {
     handleAuthFailure();
     throw new Error("Not authenticated. Please log in.");
@@ -1412,6 +1420,7 @@ async function appsScriptRequest(params) {
   if (!edgeUrl) throw new Error("Dashboard service is not configured.");
 
   let accessToken = auth.getToken();
+  const requestTimeout = typeof timeoutMs === "number" ? timeoutMs : REQUEST_TIMEOUT_MS;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const query = new URLSearchParams({ _: String(Date.now()) });
@@ -1428,7 +1437,7 @@ async function appsScriptRequest(params) {
     }
 
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeoutId = window.setTimeout(() => controller.abort(), requestTimeout);
 
     let response;
     try {

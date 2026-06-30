@@ -650,7 +650,9 @@ async function getGloveEventsForOrg(
     const payload = await fetchBiot(
       config, "GET",
       "/generic-entity/v3/generic-entities/device_event",
-      { accessToken, query: { searchRequest: JSON.stringify(searchRequest) } },
+      // Patient budget: this is the async glove path, off the dashboard critical path, so we wait
+      // out BIOT's slow ABAC expansion (~90s for large distributors) rather than giving up early.
+      { accessToken, query: { searchRequest: JSON.stringify(searchRequest) }, timeoutMs: GLOVE_FETCH_TIMEOUT_MS },
     );
 
     const items = extractItems(payload, ["items", "data", "results", "rows", "entities", "genericEntities"]);
@@ -1193,18 +1195,23 @@ function dateOnly(d: Date): string {
 // HTTP helper
 // ---------------------------------------------------------------------------
 
-// Per-call upstream timeout. BIOT's generic-entity (device_event) endpoint performs an
-// ABAC permission expansion whose cost scales with the caller's permitted-entity set. For
-// large-distributor tokens that expansion takes ~85-90s and then fails (HTTP 414), which
-// previously stalled the whole dashboard right up against the frontend's 90s request
-// timeout (intermittent "Unable to load dashboard data right now"). Every legitimate BIOT
-// call here returns in ~1-2s, so a 15s ceiling fails the pathological call fast while never
-// tripping on a healthy one. (Confirmed live 2026-06-28.)
+// Per-call upstream timeout (the FAST-PATH default). Everything on the main dashboard's critical
+// path — /users/self, /device/v2/devices, distributor/bridge/cartridge lookups — returns in ~1-2s,
+// so a 15s ceiling protects against a hung call without ever tripping a healthy one.
 const BIOT_FETCH_TIMEOUT_MS = 15000;
+
+// Patient budget for the async glove path ONLY. BIOT's generic-entity `device_event` endpoint runs
+// an ABAC permission expansion whose cost scales with the caller's permitted-entity set; for a
+// large-distributor token permitted into the manufacturer root org it takes ~90s before BIOT itself
+// responds (with HTTP 414 — proven deterministic, runs ~89-91s, 2026-06-30). Because gloves are now
+// loaded OFF the dashboard critical path (separate `gloves` action), we can afford to wait out that
+// full ~90s so that any token whose `device_event` would eventually SUCCEED gets its data, instead
+// of being cut off prematurely. 120s covers the observed ~90s with margin and still caps a true hang.
+const GLOVE_FETCH_TIMEOUT_MS = 120000;
 
 async function fetchBiot(
   config: BiotConfig, method: string, path: string,
-  options: { accessToken?: string; body?: unknown; query?: Record<string, string>; expectedStatuses?: number[]; baseUrl?: string } = {},
+  options: { accessToken?: string; body?: unknown; query?: Record<string, string>; expectedStatuses?: number[]; baseUrl?: string; timeoutMs?: number } = {},
 ): Promise<Record<string, unknown>> {
   const base = options.baseUrl ?? config.baseUrl;
   const url = buildUrl(`${base}${path}`, options.query ?? {});
@@ -1214,14 +1221,15 @@ async function fetchBiot(
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
   const init: RequestInit = { method, headers };
   if (options.body !== undefined) { headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }
+  const timeoutMs = options.timeoutMs ?? BIOT_FETCH_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), BIOT_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, { ...init, signal: controller.signal });
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error(`BIOT request timed out after ${BIOT_FETCH_TIMEOUT_MS / 1000}s (${path}).`);
+      throw new Error(`BIOT request timed out after ${timeoutMs / 1000}s (${path}).`);
     }
     throw e;
   } finally {

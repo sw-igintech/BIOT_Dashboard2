@@ -628,7 +628,8 @@ async function getGloveEventsForOrg(
       const payload = await fetchBiot(
         config, "GET",
         "/generic-entity/v3/generic-entities/device_event",
-        { accessToken, query: { searchRequest: JSON.stringify(searchRequest) } },
+        // Patient budget — async glove path, off the dashboard critical path.
+        { accessToken, query: { searchRequest: JSON.stringify(searchRequest) }, timeoutMs: GLOVE_FETCH_TIMEOUT_MS },
       );
 
       const items = extractItems(payload, ["items", "data", "results", "rows", "entities", "genericEntities"]);
@@ -1181,9 +1182,14 @@ function dateOnly(d: Date): string {
 // tripping on a healthy one. (Confirmed live 2026-06-28.)
 const BIOT_FETCH_TIMEOUT_MS = 15000;
 
+// Patient budget for the async glove path ONLY (see deno/main.ts for the full rationale): BIOT's
+// `device_event` ABAC expansion takes ~90s for large-distributor tokens before BIOT itself responds.
+// Gloves are off the dashboard critical path, so we wait out that ~90s rather than giving up early.
+const GLOVE_FETCH_TIMEOUT_MS = 120000;
+
 async function fetchBiot(
   config: BiotConfig, method: string, path: string,
-  options: { accessToken?: string; body?: unknown; query?: Record<string, string>; expectedStatuses?: number[]; baseUrl?: string } = {},
+  options: { accessToken?: string; body?: unknown; query?: Record<string, string>; expectedStatuses?: number[]; baseUrl?: string; timeoutMs?: number } = {},
 ): Promise<Record<string, unknown>> {
   const base = options.baseUrl ?? config.baseUrl;
   const url = buildUrl(`${base}${path}`, options.query ?? {});
@@ -1191,14 +1197,15 @@ async function fetchBiot(
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
   const init: RequestInit = { method, headers };
   if (options.body !== undefined) { headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }
+  const timeoutMs = options.timeoutMs ?? BIOT_FETCH_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), BIOT_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, { ...init, signal: controller.signal });
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error(`BIOT request timed out after ${BIOT_FETCH_TIMEOUT_MS / 1000}s (${path}).`);
+      throw new Error(`BIOT request timed out after ${timeoutMs / 1000}s (${path}).`);
     }
     throw e;
   } finally {

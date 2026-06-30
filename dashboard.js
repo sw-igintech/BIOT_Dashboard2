@@ -389,6 +389,10 @@ async function refreshDashboard() {
     closeDeviceDetail();
     renderOrganizationSelector(summary);
     renderSummary(summary);
+    // Glove metrics load asynchronously (separate `gloves` action) so the slow/unreliable BIOT
+    // device_event query never blocks the main dashboard render. Fire-and-forget; the function
+    // guards against a stale response via the captured requestId.
+    refreshGloves(params, requestId);
   } catch (error) {
     if (requestId !== state.requestId) return;
     destroyCharts();
@@ -459,15 +463,8 @@ function renderSummary(summary) {
     { label: "Disconnected", value: summary.connection.counts.disconnected },
   ]);
 
-  // Gloves: hide Unknown in metrics and chart/legend
-  const gloveDisplayBreakdown = summary.gloves.breakdown.filter((b) => b.key !== "unknown");
-  renderMetrics("gloveMetrics", [
-    { label: "Total Events", value: summary.gloves.total },
-    { label: "Small", value: summary.gloves.counts.small },
-    { label: "Medium", value: summary.gloves.counts.medium, cls: "metric-tile--sm" },
-    { label: "Large", value: summary.gloves.counts.large, cls: "metric-tile--sm" },
-    { label: "Extra Large", value: summary.gloves.counts.extraLarge, cls: "metric-tile--sm" },
-  ]);
+  // Gloves are rendered separately by renderGloves(), invoked from the async `gloves` fetch in
+  // refreshDashboard — keeping the slow/unreliable BIOT device_event query off this critical path.
 
   // Sanitizer: keep Unknown fully visible
   renderMetrics("sanitizerMetrics", [
@@ -488,8 +485,6 @@ function renderSummary(summary) {
   renderLegend("connectionLegend", connDisplayBreakdown, CHART_COLORS.connection, (key) => {
     setConnectionFilter(key);
   });
-  renderLegend("gloveLegend", gloveDisplayBreakdown, CHART_COLORS.gloves);
-  renderGloveHighlight(summary.gloves.counts);
   renderLegend("sanitizerLegend", summary.sanitizer.breakdown, CHART_COLORS.sanitizer);
   renderLegend("operationalLegend", summary.operational.breakdown, CHART_COLORS.operational);
 
@@ -497,12 +492,68 @@ function renderSummary(summary) {
   upsertChart("connectionChart", "connection", connDisplayBreakdown, summary.connection.total, "Devices", (key) => {
     setConnectionFilter(key);
   });
-  upsertChart("gloveChart", "gloves", gloveDisplayBreakdown, summary.gloves.total, "Events");
   upsertChart("sanitizerChart", "sanitizer", summary.sanitizer.breakdown, summary.sanitizer.total, "Devices");
   upsertChart("operationalChart", "operational", summary.operational.breakdown, summary.operational.total, "Devices");
 
   renderMachinesTable(summary);
   renderCartridgesTable(summary);
+}
+
+// ---------------------------------------------------------------------------
+// Glove metrics — loaded asynchronously (separate `gloves` action) so the slow/unreliable BIOT
+// device_event query never blocks the main dashboard. See claude/ docs for the root cause.
+// ---------------------------------------------------------------------------
+
+function clearGloveWidgets() {
+  document.getElementById("gloveLegend").innerHTML = "";
+  const tip = document.getElementById("gloveTip");
+  if (tip) tip.classList.add("hidden");
+  if (state.charts.gloveChart) {
+    state.charts.gloveChart.destroy();
+    delete state.charts.gloveChart;
+  }
+}
+
+function renderGloveMessage(message) {
+  const container = document.getElementById("gloveMetrics");
+  if (container) container.innerHTML = `<div class="glove-status-msg">${message}</div>`;
+  clearGloveWidgets();
+}
+
+function renderGloves(glovesSection) {
+  const g = glovesSection || { total: 0, counts: {}, breakdown: [] };
+  const counts = g.counts || {};
+  const gloveDisplayBreakdown = (g.breakdown || []).filter((b) => b.key !== "unknown");
+  renderMetrics("gloveMetrics", [
+    { label: "Total Events", value: g.total },
+    { label: "Small", value: counts.small },
+    { label: "Medium", value: counts.medium, cls: "metric-tile--sm" },
+    { label: "Large", value: counts.large, cls: "metric-tile--sm" },
+    { label: "Extra Large", value: counts.extraLarge, cls: "metric-tile--sm" },
+  ]);
+  renderLegend("gloveLegend", gloveDisplayBreakdown, CHART_COLORS.gloves);
+  renderGloveHighlight(counts);
+  upsertChart("gloveChart", "gloves", gloveDisplayBreakdown, g.total, "Events");
+}
+
+async function refreshGloves(params, requestId) {
+  renderGloveMessage("Loading glove metrics…");
+  try {
+    const data = await appsScriptRequest({ ...params, action: "gloves" });
+    // Drop a stale response if a newer dashboard refresh has started since.
+    if (requestId !== state.requestId) return;
+    const glovesSection = normalizeChartSection(data && data.gloves, GLOVE_BREAKDOWN);
+    const partialMsg = data && data.meta && data.meta.partialFailures && data.meta.partialFailures.gloves;
+    // Full upstream failure (no data at all) → honest "unavailable" instead of a misleading 0.
+    if (glovesSection.total === 0 && partialMsg) {
+      renderGloveMessage("Glove metrics are temporarily unavailable for this scope (BIOT upstream timeout). The rest of the dashboard is live.");
+      return;
+    }
+    renderGloves(glovesSection);
+  } catch (_error) {
+    if (requestId !== state.requestId) return;
+    renderGloveMessage("Glove metrics could not be loaded right now. The rest of the dashboard is live.");
+  }
 }
 
 // ---------------------------------------------------------------------------

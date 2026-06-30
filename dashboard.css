@@ -167,6 +167,15 @@ button
   margin-top: 2px;
 }
 
+/* Glove metrics load asynchronously; this is the loading / unavailable placeholder. */
+.glove-status-msg
+{
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.75rem 0.25rem;
+  line-height: 1.4;
+}
+
 /* ---------------------------------------------------------------------------
    Filters bar
 --------------------------------------------------------------------------- */

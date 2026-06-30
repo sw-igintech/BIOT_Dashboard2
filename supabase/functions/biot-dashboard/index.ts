@@ -182,6 +182,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return ok({ ok: true, data });
     }
 
+    // ── gloves — glove metrics only (loaded asynchronously, off the dashboard critical path) ──
+    if (action === "gloves") {
+      const userToken = req.headers.get("x-biot-token");
+      if (!userToken) {
+        return new Response(
+          JSON.stringify({ ok: false, error: { message: "Not authenticated. Please log in." } }),
+          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      const data = await buildGloves(params, userToken);
+      return ok({ ok: true, data });
+    }
+
     // ── entity — fetch a single generic entity by ID (used for device settings) ──
     if (action === "entity") {
       const userToken = req.headers.get("x-biot-token");
@@ -273,7 +286,23 @@ async function refreshProxy(refreshToken: string): Promise<Record<string, unknow
 // Dashboard builder
 // ---------------------------------------------------------------------------
 
-async function buildDashboard(params: Record<string, string>, accessToken: string): Promise<Record<string, unknown>> {
+// Shared scope/device context resolved once per request. Used by BOTH the `dashboard` action
+// (everything except gloves) and the `gloves` action (glove aggregation only). Splitting the two
+// keeps the slow/unreliable glove-event query (BIOT `device_event` ABAC can take ~90s and 414 for
+// some distributor tokens — see claude/ docs) OFF the main dashboard's critical path.
+interface DashboardContext {
+  config: BiotConfig;
+  dateRange: DateRange;
+  viewer: Viewer;
+  organizations: Organization[];
+  distributors: Distributor[];
+  scope: ResolvedScope;
+  scopedDevices: NormalizedDevice[];
+  scopedDeviceIds: Set<string>;
+  eventOrgIds: string[];
+}
+
+async function resolveDashboardContext(params: Record<string, string>, accessToken: string): Promise<DashboardContext> {
   const config: BiotConfig = { baseUrl: getBaseUrl() };
   const dateRange = resolveDateRange(params);
 
@@ -312,22 +341,35 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     ? scope.organizationIds
     : Array.from(new Set(scopedDevices.map((d) => d.organizationId).filter((id): id is string => !!id)));
 
+  return { config, dateRange, viewer, organizations, distributors, scope, scopedDevices, scopedDeviceIds, eventOrgIds };
+}
+
+// Glove aggregation, served by the dedicated `gloves` action so it never blocks the main dashboard.
+async function buildGloves(params: Record<string, string>, accessToken: string): Promise<Record<string, unknown>> {
+  const ctx = await resolveDashboardContext(params, accessToken);
   const widgetErrors: Record<string, string> = {};
   const gloves = await safeWidget(
     () => getGloveSummary(
-      config, accessToken, eventOrgIds, dateRange,
-      // Only restrict to in-scope device ids when a specific scope is selected.
-      // "All" view counts every event the API returns for the user's org set.
-      scope.kind === "all" ? null : scopedDeviceIds,
+      ctx.config, accessToken, ctx.eventOrgIds, ctx.dateRange,
+      ctx.scope.kind === "all" ? null : ctx.scopedDeviceIds,
     ),
     emptyGloveSummary(),
     (msg) => { widgetErrors.gloves = msg; },
   );
-  // Partial glove failure (some owner-orgs returned, others timed out upstream): surface it
-  // so the frontend can show "data may be incomplete" without discarding the counts we have.
   if (typeof gloves.partialOrgFailures === "number" && gloves.partialOrgFailures > 0) {
     widgetErrors.gloves = `Glove data unavailable for ${gloves.partialOrgFailures} organization(s) (BIOT upstream timeout); showing partial totals.`;
   }
+  return {
+    gloves,
+    scope: { organizationId: ctx.scope.selectedToken, kind: ctx.scope.kind },
+    meta: { generatedAt: new Date().toISOString(), backend: "Supabase Edge Function", partialFailures: widgetErrors },
+  };
+}
+
+async function buildDashboard(params: Record<string, string>, accessToken: string): Promise<Record<string, unknown>> {
+  const ctx = await resolveDashboardContext(params, accessToken);
+  const { config, dateRange, viewer, organizations, distributors, scope, scopedDevices } = ctx;
+  const widgetErrors: Record<string, string> = {};
   // Cartridges. Fetched only when the result set is bounded and actionable: for org-role users
   // (locked to their own org — small set) and for a manufacturer who has picked a specific
   // org/distributor scope. The manufacturer "all" view is intentionally skipped — it would pull
@@ -370,7 +412,8 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     devices: getAllDevices(scopedDevices),
     // Operational summary: Operational = delivery_available === true, Non-Operational = otherwise
     operational: getOperationalSummary(scopedDevices),
-    gloves,
+    // Gloves loaded asynchronously via the `gloves` action (off the dashboard critical path).
+    gloves: { ...emptyGloveSummary(), pending: true },
     sanitizer: getSanitizerSummary(scopedDevices),
     // scopeHint=true → cartridges deliberately not fetched (manufacturer "all"); frontend shows
     // "select an organization or distributor to view cartridges" instead of an empty table.

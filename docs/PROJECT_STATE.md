@@ -15,6 +15,18 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > **Known upstream defect (BIOT-side, not ours):** `device_event` ABAC times out (→414) for
 > large-distributor tokens, so those users show 0 gloves — now handled gracefully.
 
+> **UPDATE 2026-06-30 — glove metrics decoupled to an async `gloves` action (live on `main`, HEAD `f55b867`).**
+> Re-proved the stamshemyafe slowness fresh: it is a BIOT-side ABAC expansion defect **specific to
+> `device_event` + that token** (identical query is 200/~0.4s under MFR/EC1/D2 but 414/~90s under
+> stamshemyafe; independent of time-window/filter/limit) — **not** machine count (it sees 7 vs the
+> manufacturer's 100+). Caching was evaluated and **rejected** (can't cache data BIOT never returns;
+> violates the no-DB/no-cache rule). Fix: the `dashboard` action returns everything except gloves
+> (marked `pending`); a new `gloves` action loads them asynchronously so the doomed call never blocks
+> the page. **Main dashboard: stamshemyafe ~16s→~2s, manufacturer ~8s→~3s**; glove widget shows live
+> data where BIOT serves it, "temporarily unavailable" where it 414s. Supabase fallback mirrors it.
+> Writeup + rollback: `claude/INVESTIGATION_2026-06-30_glove-async-decoupling.md`.
+> *(Repo was relocated to `~/Documents/IGIN_GITHUB/machines_dashboard_CLAUDE`; git/remote unchanged.)*
+
 ---
 
 ## 1. What this project is

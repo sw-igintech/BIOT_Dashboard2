@@ -32,6 +32,13 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > **real-zero** ("No glove events in the selected period." + 0 tiles), and a clear **unavailable**
 > (⚠ + BIOT-timeout message) — so a true zero no longer looks like "nothing loaded" and loading/
 > failure are never shown as 0. GitHub Pages rebuild only (no backend change).
+>
+> **Follow-up 2 (same day, `main` @ `e1417c4`, assets `?v=20260630-3`):** made the async glove load
+> **patient** instead of fail-fast. The glove `device_event` path now uses an 85s budget (vs the 15s
+> fast-path used everywhere else), so the glove loading animation stays for the full background load
+> (~86s for large distributors) and only then resolves to data / real-zero / unavailable — never
+> giving up early. Capped at 85s because Deno Deploy aborts a request at ~116s. Verified live: STAM
+> gloves run ~86s → clean UNAVAILABLE; MFR → DATA; EC1 → real-zero; main dashboard stays ~1.6s.
 
 ---
 

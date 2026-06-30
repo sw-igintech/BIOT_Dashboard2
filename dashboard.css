@@ -167,14 +167,82 @@ button
   margin-top: 2px;
 }
 
-/* Glove metrics load asynchronously; this is the loading / unavailable placeholder. */
-.glove-status-msg
+/* Glove metrics load asynchronously. The status overlay shows a glove-themed loading
+   animation, or an honest "unavailable" message — never a misleading zero. */
+.glove-status
 {
-  font-size: 0.82rem;
-  color: var(--muted);
-  padding: 0.75rem 0.25rem;
-  line-height: 1.4;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 1rem;
+  text-align: center;
 }
+
+.glove-status-inner
+{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 300px;
+}
+
+.glove-status-text
+{
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.glove-status-icon
+{
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--danger);
+}
+
+/* Glove "filling" loading animation — lightweight inline SVG, no dependencies. */
+.glove-spinner
+{
+  width: 52px;
+  height: 64px;
+  color: var(--primary);
+  display: block;
+}
+
+.glove-spinner .glove-fill
+{
+  animation: gloveFill 1.7s ease-in-out infinite;
+}
+
+@keyframes gloveFill
+{
+  0%   { y: 64px; opacity: 0.5; }
+  50%  { y: 6px;  opacity: 1; }
+  100% { y: 64px; opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce)
+{
+  .glove-spinner .glove-fill { animation: none; y: 22px; }
+}
+
+/* Real-zero caption shown in place of the (empty) doughnut so 0 reads as a real result. */
+.glove-empty-note
+{
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0 1rem;
+}
+
+#gloveChart.hidden { display: none; }
 
 /* ---------------------------------------------------------------------------
    Filters bar

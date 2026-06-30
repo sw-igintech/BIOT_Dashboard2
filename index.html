@@ -14,8 +14,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr" defer></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
-  <link rel="stylesheet" href="./dashboard.css?v=20260630-1" />
-  <script src="./dashboard.js?v=20260630-1" defer></script>
+  <link rel="stylesheet" href="./dashboard.css?v=20260630-2" />
+  <script src="./dashboard.js?v=20260630-2" defer></script>
 </head>
 <body>
 
@@ -123,14 +123,22 @@
           <div class="card-header simple-card-header">
             <h3>Glove Consumption</h3>
           </div>
-          <div id="gloveMetrics" class="metric-grid"></div>
-          <div class="chart-layout">
-            <div class="chart-area">
-              <canvas id="gloveChart" aria-label="Glove consumption chart"></canvas>
+          <!-- Glove status overlay — shown while loading, or when metrics are temporarily
+               unavailable (BIOT device_event upstream issue). Hidden when real data/zero renders. -->
+          <div id="gloveStatus" class="glove-status hidden" role="status" aria-live="polite"></div>
+          <!-- Glove data content — hidden while the status overlay is shown. -->
+          <div id="gloveContent">
+            <div id="gloveMetrics" class="metric-grid"></div>
+            <div class="chart-layout">
+              <div class="chart-area">
+                <canvas id="gloveChart" aria-label="Glove consumption chart"></canvas>
+                <!-- Real-zero state: a clear caption replaces the (empty) chart. -->
+                <div id="gloveEmptyNote" class="glove-empty-note hidden">No glove events in the selected period.</div>
+              </div>
+              <div id="gloveLegend" class="legend"></div>
             </div>
-            <div id="gloveLegend" class="legend"></div>
+            <div id="gloveTip" class="glove-tip hidden"></div>
           </div>
-          <div id="gloveTip" class="glove-tip hidden"></div>
         </article>
 
         <article class="card chart-card">

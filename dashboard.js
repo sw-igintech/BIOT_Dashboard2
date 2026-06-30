@@ -364,6 +364,9 @@ async function refreshDashboard() {
   const requestId = ++state.requestId;
   setDashboardLoading(true);
   hideDashboardError();
+  // Show the glove loading state up front so the glove card animates during the whole refresh
+  // (main load + the async glove fetch), rather than briefly showing an empty/zero-looking card.
+  setGloveState("loading");
 
   const organizationSelect = document.getElementById("organizationSelect");
   const organizationField = document.getElementById("organizationField");
@@ -504,55 +507,119 @@ function renderSummary(summary) {
 // device_event query never blocks the main dashboard. See claude/ docs for the root cause.
 // ---------------------------------------------------------------------------
 
-function clearGloveWidgets() {
-  document.getElementById("gloveLegend").innerHTML = "";
-  const tip = document.getElementById("gloveTip");
-  if (tip) tip.classList.add("hidden");
+// Inline glove "filling" loading icon (lightweight SVG; animated via .glove-fill CSS).
+const GLOVE_SVG = `
+<svg class="glove-spinner" viewBox="0 0 56 70" width="52" height="64" role="img" aria-label="Loading glove data">
+  <defs>
+    <clipPath id="gloveClip">
+      <rect x="9" y="8" width="8" height="30" rx="4"/>
+      <rect x="19" y="4" width="8" height="34" rx="4"/>
+      <rect x="29" y="4" width="8" height="34" rx="4"/>
+      <rect x="39" y="8" width="8" height="30" rx="4"/>
+      <rect x="7" y="28" width="42" height="30" rx="9"/>
+      <rect x="2" y="32" width="12" height="11" rx="5.5" transform="rotate(-30 8 38)"/>
+      <rect x="9" y="52" width="38" height="15" rx="4"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#gloveClip)">
+    <rect x="0" y="0" width="56" height="70" fill="currentColor" opacity="0.14"/>
+    <rect class="glove-fill" x="0" y="64" width="56" height="70" fill="currentColor"/>
+  </g>
+</svg>`;
+
+// Shared metric-tile spec for the glove widget (Total + per-size). Used by both the data
+// and real-zero states so a true zero shows the same honest tiles (all 0), not an error.
+function gloveMetricItems(g) {
+  const counts = (g && g.counts) || {};
+  return [
+    { label: "Total Events", value: g ? g.total : 0 },
+    { label: "Small", value: counts.small },
+    { label: "Medium", value: counts.medium, cls: "metric-tile--sm" },
+    { label: "Large", value: counts.large, cls: "metric-tile--sm" },
+    { label: "Extra Large", value: counts.extraLarge, cls: "metric-tile--sm" },
+  ];
+}
+
+function destroyGloveChart() {
   if (state.charts.gloveChart) {
     state.charts.gloveChart.destroy();
     delete state.charts.gloveChart;
   }
 }
 
-function renderGloveMessage(message) {
-  const container = document.getElementById("gloveMetrics");
-  if (container) container.innerHTML = `<div class="glove-status-msg">${message}</div>`;
-  clearGloveWidgets();
-}
+// Single source of truth for the glove widget's four UI states. This keeps "loading",
+// "temporarily unavailable", "real zero" and "real data" visually and semantically distinct —
+// a true zero is never shown as loading/failure, and loading/failure is never shown as zero.
+//   kind: "loading" | "unavailable" | "zero" | "data"
+function setGloveState(kind, payload) {
+  const statusEl = document.getElementById("gloveStatus");
+  const contentEl = document.getElementById("gloveContent");
+  const emptyNote = document.getElementById("gloveEmptyNote");
+  const canvas = document.getElementById("gloveChart");
+  const legend = document.getElementById("gloveLegend");
+  const tip = document.getElementById("gloveTip");
 
-function renderGloves(glovesSection) {
-  const g = glovesSection || { total: 0, counts: {}, breakdown: [] };
-  const counts = g.counts || {};
-  const gloveDisplayBreakdown = (g.breakdown || []).filter((b) => b.key !== "unknown");
-  renderMetrics("gloveMetrics", [
-    { label: "Total Events", value: g.total },
-    { label: "Small", value: counts.small },
-    { label: "Medium", value: counts.medium, cls: "metric-tile--sm" },
-    { label: "Large", value: counts.large, cls: "metric-tile--sm" },
-    { label: "Extra Large", value: counts.extraLarge, cls: "metric-tile--sm" },
-  ]);
+  if (kind === "loading" || kind === "unavailable") {
+    // Replace the whole glove body with a prominent, centered status overlay.
+    destroyGloveChart();
+    if (contentEl) contentEl.classList.add("hidden");
+    if (statusEl) {
+      statusEl.classList.remove("hidden");
+      statusEl.innerHTML = kind === "loading"
+        ? `<div class="glove-status-inner">${GLOVE_SVG}<div class="glove-status-text">Loading glove data…</div></div>`
+        : `<div class="glove-status-inner"><div class="glove-status-icon" aria-hidden="true">⚠</div><div class="glove-status-text">${payload || "Glove metrics are temporarily unavailable."}</div></div>`;
+    }
+    return;
+  }
+
+  // Real result (data or zero) → show the content body, hide the status overlay.
+  if (statusEl) { statusEl.classList.add("hidden"); statusEl.innerHTML = ""; }
+  if (contentEl) contentEl.classList.remove("hidden");
+
+  if (kind === "zero") {
+    // A genuine zero: show the real metric tiles (all 0) + a clear caption instead of an
+    // empty doughnut, so it reads as a real "no events" result rather than a broken widget.
+    renderMetrics("gloveMetrics", gloveMetricItems(payload));
+    if (legend) legend.innerHTML = "";
+    destroyGloveChart();
+    if (canvas) canvas.classList.add("hidden");
+    if (emptyNote) emptyNote.classList.remove("hidden");
+    if (tip) tip.classList.add("hidden");
+    return;
+  }
+
+  // kind === "data": full glove render (metrics + chart + legend + HIGH DEMAND/PRO TIP).
+  if (canvas) canvas.classList.remove("hidden");
+  if (emptyNote) emptyNote.classList.add("hidden");
+  const gloveDisplayBreakdown = (payload.breakdown || []).filter((b) => b.key !== "unknown");
+  renderMetrics("gloveMetrics", gloveMetricItems(payload));
   renderLegend("gloveLegend", gloveDisplayBreakdown, CHART_COLORS.gloves);
-  renderGloveHighlight(counts);
-  upsertChart("gloveChart", "gloves", gloveDisplayBreakdown, g.total, "Events");
+  renderGloveHighlight(payload.counts || {});
+  upsertChart("gloveChart", "gloves", gloveDisplayBreakdown, payload.total, "Events");
 }
 
 async function refreshGloves(params, requestId) {
-  renderGloveMessage("Loading glove metrics…");
+  setGloveState("loading");
   try {
     const data = await appsScriptRequest({ ...params, action: "gloves" });
     // Drop a stale response if a newer dashboard refresh has started since.
     if (requestId !== state.requestId) return;
     const glovesSection = normalizeChartSection(data && data.gloves, GLOVE_BREAKDOWN);
-    const partialMsg = data && data.meta && data.meta.partialFailures && data.meta.partialFailures.gloves;
-    // Full upstream failure (no data at all) → honest "unavailable" instead of a misleading 0.
-    if (glovesSection.total === 0 && partialMsg) {
-      renderGloveMessage("Glove metrics are temporarily unavailable for this scope (BIOT upstream timeout). The rest of the dashboard is live.");
-      return;
+    const failureMsg = data && data.meta && data.meta.partialFailures && data.meta.partialFailures.gloves;
+    if (glovesSection.total > 0) {
+      // Real data (full or partial). Partial-failure note is folded into the upstream message
+      // but the data we do have is shown.
+      setGloveState("data", glovesSection);
+    } else if (failureMsg) {
+      // total 0 *because* the upstream device_event query failed/timed out — NOT a real zero.
+      setGloveState("unavailable", "Glove metrics are temporarily unavailable for this scope (BIOT upstream timeout). The rest of the dashboard is live.");
+    } else {
+      // Genuine zero: BIOT returned successfully with no glove events in the period.
+      setGloveState("zero", glovesSection);
     }
-    renderGloves(glovesSection);
   } catch (_error) {
     if (requestId !== state.requestId) return;
-    renderGloveMessage("Glove metrics could not be loaded right now. The rest of the dashboard is live.");
+    setGloveState("unavailable", "Glove metrics could not be loaded right now. The rest of the dashboard is live.");
   }
 }
 

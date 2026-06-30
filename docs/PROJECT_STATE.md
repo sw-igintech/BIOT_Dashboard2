@@ -26,6 +26,12 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > data where BIOT serves it, "temporarily unavailable" where it 414s. Supabase fallback mirrors it.
 > Writeup + rollback: `claude/INVESTIGATION_2026-06-30_glove-async-decoupling.md`.
 > *(Repo was relocated to `~/Documents/IGIN_GITHUB/machines_dashboard_CLAUDE`; git/remote unchanged.)*
+>
+> **Follow-up (same day, frontend-only, `main` @ `72ebcab`, assets `?v=20260630-2`):** glove widget
+> now has 4 explicit UI states — a glove-themed "filling" loading animation, real data, an honest
+> **real-zero** ("No glove events in the selected period." + 0 tiles), and a clear **unavailable**
+> (⚠ + BIOT-timeout message) — so a true zero no longer looks like "nothing loaded" and loading/
+> failure are never shown as 0. GitHub Pages rebuild only (no backend change).
 
 ---
 

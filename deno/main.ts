@@ -25,7 +25,8 @@
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-biot-token",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-biot-token",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -145,27 +146,47 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     const url = new URL(req.url);
     const params: Record<string, string> = {};
-    url.searchParams.forEach((v, k) => { params[k] = v; });
+    url.searchParams.forEach((v, k) => {
+      params[k] = v;
+    });
 
     // Parse JSON body for POST requests
     let body: Record<string, unknown> = {};
     if (req.method === "POST") {
-      try { body = await req.json(); } catch { /* ignore malformed body */ }
+      try {
+        body = await req.json();
+      } catch {
+        /* ignore malformed body */
+      }
     }
 
-    const action = (typeof body.action === "string" ? body.action : null) ?? params.action ?? "dashboard";
+    const action =
+      (typeof body.action === "string" ? body.action : null) ??
+      params.action ??
+      "dashboard";
 
     // ── health ──────────────────────────────────────────────────────────────
     if (action === "health") {
-      return ok({ ok: true, backend: "Deno Deploy", timestamp: new Date().toISOString() });
+      return ok({
+        ok: true,
+        backend: "Deno Deploy",
+        timestamp: new Date().toISOString(),
+      });
     }
 
     // ── login ───────────────────────────────────────────────────────────────
     if (action === "login") {
-      const username = typeof body.username === "string" ? body.username.trim() : "";
+      const username =
+        typeof body.username === "string" ? body.username.trim() : "";
       const password = typeof body.password === "string" ? body.password : "";
       if (!username || !password) {
-        return err({ ok: false, error: { message: "username and password are required." } }, 400);
+        return err(
+          {
+            ok: false,
+            error: { message: "username and password are required." },
+          },
+          400,
+        );
       }
       const data = await loginProxy(username, password);
       return ok({ ok: true, data });
@@ -173,9 +194,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // ── token refresh ────────────────────────────────────────────────────────
     if (action === "refresh") {
-      const refreshToken = typeof body.refreshToken === "string" ? body.refreshToken.trim() : "";
+      const refreshToken =
+        typeof body.refreshToken === "string" ? body.refreshToken.trim() : "";
       if (!refreshToken) {
-        return err({ ok: false, error: { message: "refreshToken is required." } }, 400);
+        return err(
+          { ok: false, error: { message: "refreshToken is required." } },
+          400,
+        );
       }
       const data = await refreshProxy(refreshToken);
       return ok({ ok: true, data });
@@ -186,8 +211,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const userToken = req.headers.get("x-biot-token");
       if (!userToken) {
         return new Response(
-          JSON.stringify({ ok: false, error: { message: "Not authenticated. Please log in." } }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+          JSON.stringify({
+            ok: false,
+            error: { message: "Not authenticated. Please log in." },
+          }),
+          {
+            status: 401,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          },
         );
       }
       const data = await buildDashboard(params, userToken);
@@ -199,8 +230,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const userToken = req.headers.get("x-biot-token");
       if (!userToken) {
         return new Response(
-          JSON.stringify({ ok: false, error: { message: "Not authenticated. Please log in." } }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+          JSON.stringify({
+            ok: false,
+            error: { message: "Not authenticated. Please log in." },
+          }),
+          {
+            status: 401,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          },
         );
       }
       const data = await buildGloves(params, userToken);
@@ -212,27 +249,47 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const userToken = req.headers.get("x-biot-token");
       if (!userToken) {
         return new Response(
-          JSON.stringify({ ok: false, error: { message: "Not authenticated. Please log in." } }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+          JSON.stringify({
+            ok: false,
+            error: { message: "Not authenticated. Please log in." },
+          }),
+          {
+            status: 401,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          },
         );
       }
       const entityId = params.id ?? "";
       if (!entityId) {
-        return err({ ok: false, error: { message: "id parameter is required." } }, 400);
+        return err(
+          { ok: false, error: { message: "id parameter is required." } },
+          400,
+        );
       }
       const config: BiotConfig = { baseUrl: getBaseUrl() };
-      const data = await fetchBiot(config, "GET", `/generic-entity/v1/generic-entities/${entityId}`, {
-        accessToken: userToken,
-      });
+      const data = await fetchBiot(
+        config,
+        "GET",
+        `/generic-entity/v1/generic-entities/${entityId}`,
+        {
+          accessToken: userToken,
+        },
+      );
       return ok({ ok: true, data });
     }
 
-    return err({ ok: false, error: { message: `Unknown action: ${action}` } }, 400);
+    return err(
+      { ok: false, error: { message: `Unknown action: ${action}` } },
+      400,
+    );
   } catch (e) {
     if (e instanceof BiotAuthError) {
       return new Response(
         JSON.stringify({ ok: false, error: { message: e.message } }),
-        { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        {
+          status: 401,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        },
       );
     }
     const message = e instanceof Error ? e.message : "Unexpected error";
@@ -269,28 +326,48 @@ function getBaseUrl(): string {
 // Auth proxy helpers
 // ---------------------------------------------------------------------------
 
-async function loginProxy(username: string, password: string): Promise<Record<string, unknown>> {
+async function loginProxy(
+  username: string,
+  password: string,
+): Promise<Record<string, unknown>> {
   const config: BiotConfig = { baseUrl: getBaseUrl() };
   const payload = await fetchBiot(config, "POST", "/ums/v2/users/login", {
     body: { username, password },
     expectedStatuses: [200, 201],
   });
-  const accessToken = nestedGet(payload, ["accessJwt", "token"]) as string | null;
-  const refreshToken = nestedGet(payload, ["refreshJwt", "token"]) as string | null;
+  const accessToken = nestedGet(payload, ["accessJwt", "token"]) as
+    | string
+    | null;
+  const refreshToken = nestedGet(payload, ["refreshJwt", "token"]) as
+    | string
+    | null;
   const userId = payload.userId as string | null;
-  if (!accessToken) throw new Error("BIOT login did not return an access token.");
+  if (!accessToken)
+    throw new Error("BIOT login did not return an access token.");
   return { accessToken, refreshToken, userId };
 }
 
-async function refreshProxy(refreshToken: string): Promise<Record<string, unknown>> {
+async function refreshProxy(
+  refreshToken: string,
+): Promise<Record<string, unknown>> {
   const config: BiotConfig = { baseUrl: getBaseUrl() };
-  const payload = await fetchBiot(config, "POST", "/ums/v2/users/token/refresh", {
-    body: { refreshToken },
-    expectedStatuses: [200, 201],
-  });
-  const accessToken = nestedGet(payload, ["accessJwt", "token"]) as string | null;
-  const newRefreshToken = nestedGet(payload, ["refreshJwt", "token"]) as string | null;
-  if (!accessToken) throw new Error("Token refresh did not return a new access token.");
+  const payload = await fetchBiot(
+    config,
+    "POST",
+    "/ums/v2/users/token/refresh",
+    {
+      body: { refreshToken },
+      expectedStatuses: [200, 201],
+    },
+  );
+  const accessToken = nestedGet(payload, ["accessJwt", "token"]) as
+    | string
+    | null;
+  const newRefreshToken = nestedGet(payload, ["refreshJwt", "token"]) as
+    | string
+    | null;
+  if (!accessToken)
+    throw new Error("Token refresh did not return a new access token.");
   return { accessToken, refreshToken: newRefreshToken ?? refreshToken };
 }
 
@@ -316,7 +393,10 @@ interface DashboardContext {
   eventOrgIds: string[];
 }
 
-async function resolveDashboardContext(params: Record<string, string>, accessToken: string): Promise<DashboardContext> {
+async function resolveDashboardContext(
+  params: Record<string, string>,
+  accessToken: string,
+): Promise<DashboardContext> {
   const config: BiotConfig = { baseUrl: getBaseUrl() };
   const dateRange = resolveDateRange(params);
 
@@ -329,14 +409,28 @@ async function resolveDashboardContext(params: Record<string, string>, accessTok
   // simpler control flow is worth the few extra round-trips.
   const [rawDevices, rawDistributors, rawBridges] = await Promise.all([
     getDevices(config, accessToken),
-    safeWidget(() => getDistributors(config, accessToken), [] as unknown[], () => {}),
-    safeWidget(() => getOrgDistributorBridges(config, accessToken), [] as unknown[], () => {}),
+    safeWidget(
+      () => getDistributors(config, accessToken),
+      [] as unknown[],
+      () => {},
+    ),
+    safeWidget(
+      () => getOrgDistributorBridges(config, accessToken),
+      [] as unknown[],
+      () => {},
+    ),
   ]);
   const organizations = deriveOrganizations(viewer, selfPayload, rawDevices);
   const distributors = normalizeDistributors(rawDistributors);
   // distributor id → list of child org ids (from organization_to_distributor bridges)
   const distributorToOrgIds = buildDistributorToOrgsMap(rawBridges);
-  const scope = resolveScope(viewer, organizations, distributors, distributorToOrgIds, params.organizationId);
+  const scope = resolveScope(
+    viewer,
+    organizations,
+    distributors,
+    distributorToOrgIds,
+    params.organizationId,
+  );
 
   // When a manufacturer views all organizations, trust the API response
   // entirely — the BIOT API already scopes results to the authenticated
@@ -344,50 +438,96 @@ async function resolveDashboardContext(params: Record<string, string>, accessTok
   // devices whose ownerOrganization wasn't captured by deriveOrganizations.
   // Only apply client-side scope filtering when a specific scope is selected.
   const needsClientFilter = scope.kind !== "all";
-  const scopedRaw = rawDevices.filter((d) => !needsClientFilter || deviceMatchesScope(d, scope, viewer));
+  const scopedRaw = rawDevices.filter(
+    (d) => !needsClientFilter || deviceMatchesScope(d, scope, viewer),
+  );
   const scopedDevices: NormalizedDevice[] = scopedRaw.map(normalizeDevice);
   const scopedDeviceIds = new Set(scopedDevices.map((d) => d.id));
 
   // Compute the org id set used for glove-event queries. Glove events filter only
   // by _ownerOrganization.id, so we need to query each owner-org represented in the
   // scoped device set (and post-filter events by device id to avoid over-counting).
-  const eventOrgIds = scope.kind === "all"
-    ? scope.organizationIds
-    : Array.from(new Set(scopedDevices.map((d) => d.organizationId).filter((id): id is string => !!id)));
+  const eventOrgIds =
+    scope.kind === "all"
+      ? scope.organizationIds
+      : Array.from(
+          new Set(
+            scopedDevices
+              .map((d) => d.organizationId)
+              .filter((id): id is string => !!id),
+          ),
+        );
 
-  return { config, dateRange, viewer, organizations, distributors, scope, scopedDevices, scopedDeviceIds, eventOrgIds };
+  return {
+    config,
+    dateRange,
+    viewer,
+    organizations,
+    distributors,
+    scope,
+    scopedDevices,
+    scopedDeviceIds,
+    eventOrgIds,
+  };
 }
 
 // Glove aggregation, served by the dedicated `gloves` action so it never blocks the main dashboard.
 // Returns the same glove section shape buildDashboard used to embed, plus meta.partialFailures.
-async function buildGloves(params: Record<string, string>, accessToken: string): Promise<Record<string, unknown>> {
+async function buildGloves(
+  params: Record<string, string>,
+  accessToken: string,
+): Promise<Record<string, unknown>> {
   const ctx = await resolveDashboardContext(params, accessToken);
   const widgetErrors: Record<string, string> = {};
   const gloves = await safeWidget(
-    () => getGloveSummary(
-      ctx.config, accessToken, ctx.eventOrgIds, ctx.dateRange,
-      // Only restrict to in-scope device ids when a specific scope is selected.
-      // "All" view counts every event the API returns for the user's org set.
-      ctx.scope.kind === "all" ? null : ctx.scopedDeviceIds,
-    ),
+    () =>
+      getGloveSummary(
+        ctx.config,
+        accessToken,
+        ctx.eventOrgIds,
+        ctx.dateRange,
+        // Only restrict to in-scope device ids when a specific scope is selected.
+        // "All" view counts every event the API returns for the user's org set.
+        ctx.scope.kind === "all" ? null : ctx.scopedDeviceIds,
+      ),
     emptyGloveSummary(),
-    (msg) => { widgetErrors.gloves = msg; },
+    (msg) => {
+      widgetErrors.gloves = msg;
+    },
   );
   // Partial glove failure (some owner-orgs returned, others timed out upstream): surface it
   // so the frontend can show "data may be incomplete" without discarding the counts we have.
-  if (typeof gloves.partialOrgFailures === "number" && gloves.partialOrgFailures > 0) {
+  if (
+    typeof gloves.partialOrgFailures === "number" &&
+    gloves.partialOrgFailures > 0
+  ) {
     widgetErrors.gloves = `Glove data unavailable for ${gloves.partialOrgFailures} organization(s) (BIOT upstream timeout); showing partial totals.`;
   }
   return {
     gloves,
     scope: { organizationId: ctx.scope.selectedToken, kind: ctx.scope.kind },
-    meta: { generatedAt: new Date().toISOString(), backend: "Deno Deploy", partialFailures: widgetErrors },
+    meta: {
+      generatedAt: new Date().toISOString(),
+      backend: "Deno Deploy",
+      partialFailures: widgetErrors,
+    },
   };
 }
 
-async function buildDashboard(params: Record<string, string>, accessToken: string): Promise<Record<string, unknown>> {
+async function buildDashboard(
+  params: Record<string, string>,
+  accessToken: string,
+): Promise<Record<string, unknown>> {
   const ctx = await resolveDashboardContext(params, accessToken);
-  const { config, dateRange, viewer, organizations, distributors, scope, scopedDevices } = ctx;
+  const {
+    config,
+    dateRange,
+    viewer,
+    organizations,
+    distributors,
+    scope,
+    scopedDevices,
+  } = ctx;
 
   const widgetErrors: Record<string, string> = {};
   // Cartridges. Fetched only when the result set is bounded and actionable: for org-role users
@@ -396,13 +536,16 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
   // thousands of cartridges (heavy payload, slow, and a wide fan-out that can trip BIOT rate
   // limiting); instead the frontend shows a "select a scope" hint. BIOT ABAC already scopes the
   // result; cartridgeMatchesScope additionally honors the manufacturer scope-dropdown selection.
-  const shouldFetchCartridges = viewer.role === "organization" || scope.kind !== "all";
+  const shouldFetchCartridges =
+    viewer.role === "organization" || scope.kind !== "all";
   let scopedCartridges: Record<string, unknown>[] = [];
   if (shouldFetchCartridges) {
     const rawCartridges = await safeWidget(
       () => getCartridges(config, accessToken),
       [] as unknown[],
-      (msg) => { widgetErrors.cartridges = msg; },
+      (msg) => {
+        widgetErrors.cartridges = msg;
+      },
     );
     scopedCartridges = rawCartridges
       .filter((c) => cartridgeMatchesScope(c, scope, viewer))
@@ -439,7 +582,11 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
     sanitizer: getSanitizerSummary(scopedDevices),
     // scopeHint=true → cartridges deliberately not fetched (manufacturer "all"); frontend shows
     // "select an organization or distributor to view cartridges" instead of an empty table.
-    cartridges: { total: scopedCartridges.length, items: scopedCartridges, scopeHint: !shouldFetchCartridges },
+    cartridges: {
+      total: scopedCartridges.length,
+      items: scopedCartridges,
+      scopeHint: !shouldFetchCartridges,
+    },
     meta: {
       generatedAt: new Date().toISOString(),
       backend: "Deno Deploy",
@@ -452,11 +599,17 @@ async function buildDashboard(params: Record<string, string>, accessToken: strin
 // BIOT API calls
 // ---------------------------------------------------------------------------
 
-async function getCurrentUser(config: BiotConfig, accessToken: string): Promise<Record<string, unknown>> {
+async function getCurrentUser(
+  config: BiotConfig,
+  accessToken: string,
+): Promise<Record<string, unknown>> {
   return fetchBiot(config, "GET", "/ums/v2/users/self", { accessToken });
 }
 
-async function getDevices(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+async function getDevices(
+  config: BiotConfig,
+  accessToken: string,
+): Promise<unknown[]> {
   const allDevices: unknown[] = [];
   let page = 0;
 
@@ -467,7 +620,12 @@ async function getDevices(config: BiotConfig, accessToken: string): Promise<unkn
       query: { searchRequest: JSON.stringify(searchRequest) },
     });
 
-    const items = extractItems(payload, ["devices", "items", "data", "results"]);
+    const items = extractItems(payload, [
+      "devices",
+      "items",
+      "data",
+      "results",
+    ]);
     if (!items.length) break;
 
     allDevices.push(...items);
@@ -484,14 +642,22 @@ async function getDevices(config: BiotConfig, accessToken: string): Promise<unkn
 
 // Distributor entities (templateName "distributor"). Confirmed live 2026-05-19:
 // returns { data: [{ _id, _name, _ownerOrganization, ... }] }.
-async function getDistributors(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+async function getDistributors(
+  config: BiotConfig,
+  accessToken: string,
+): Promise<unknown[]> {
   const all: unknown[] = [];
   let page = 0;
   while (true) {
-    const payload = await fetchBiot(config, "GET", "/generic-entity/v3/generic-entities/distributor", {
-      accessToken,
-      query: { searchRequest: JSON.stringify({ limit: 100, page }) },
-    });
+    const payload = await fetchBiot(
+      config,
+      "GET",
+      "/generic-entity/v3/generic-entities/distributor",
+      {
+        accessToken,
+        query: { searchRequest: JSON.stringify({ limit: 100, page }) },
+      },
+    );
     const items = extractItems(payload, ["data", "items", "results"]);
     if (!items.length) break;
     all.push(...items);
@@ -508,7 +674,10 @@ async function getDistributors(config: BiotConfig, accessToken: string): Promise
 // `_templateName` filter (BIOT now rejects it with REQUEST_VALIDATION_FAILED / HTTP 400).
 // BIOT ABAC scopes the result to what the caller may see (e.g. a distributor sees its
 // cartridges across the orgs it serves plus its <<Global>>-owned stock).
-async function getCartridges(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+async function getCartridges(
+  config: BiotConfig,
+  accessToken: string,
+): Promise<unknown[]> {
   const LIMIT = 1000;
   const PAGE_CAP = 50; // safety bound (~50k cartridges)
   const all: unknown[] = [];
@@ -517,10 +686,15 @@ async function getCartridges(config: BiotConfig, accessToken: string): Promise<u
   // upstream rate limiting). This path only runs for org/distributor scopes, whose cartridge
   // sets are small (one or two pages); the manufacturer "all" view does not fetch cartridges.
   while (page <= PAGE_CAP) {
-    const payload = await fetchBiot(config, "GET", "/generic-entity/v3/generic-entities/cartridge", {
-      accessToken,
-      query: { searchRequest: JSON.stringify({ limit: LIMIT, page }) },
-    });
+    const payload = await fetchBiot(
+      config,
+      "GET",
+      "/generic-entity/v3/generic-entities/cartridge",
+      {
+        accessToken,
+        query: { searchRequest: JSON.stringify({ limit: LIMIT, page }) },
+      },
+    );
     const items = extractItems(payload, ["data", "items", "results"]);
     if (!items.length) break;
     all.push(...items);
@@ -533,14 +707,22 @@ async function getCartridges(config: BiotConfig, accessToken: string): Promise<u
 // organization_to_distributor bridge entities (confirmed live 2026-05-19):
 // _ownerOrganization is the child organization; organization_distributor is the
 // reference to the distributor entity. Used to map orgs → distributor(s).
-async function getOrgDistributorBridges(config: BiotConfig, accessToken: string): Promise<unknown[]> {
+async function getOrgDistributorBridges(
+  config: BiotConfig,
+  accessToken: string,
+): Promise<unknown[]> {
   const all: unknown[] = [];
   let page = 0;
   while (true) {
-    const payload = await fetchBiot(config, "GET", "/generic-entity/v3/generic-entities/organization_to_distributor", {
-      accessToken,
-      query: { searchRequest: JSON.stringify({ limit: 100, page }) },
-    });
+    const payload = await fetchBiot(
+      config,
+      "GET",
+      "/generic-entity/v3/generic-entities/organization_to_distributor",
+      {
+        accessToken,
+        query: { searchRequest: JSON.stringify({ limit: 100, page }) },
+      },
+    );
     const items = extractItems(payload, ["data", "items", "results"]);
     if (!items.length) break;
     all.push(...items);
@@ -576,16 +758,26 @@ async function getGloveSummary(
   //      org(s) that actually failed are dropped, and the rest still count.
   //   2. Latency: with the 15s per-call timeout, sequential querying of N orgs could cost
   //      up to N×15s. Parallel querying bounds the worst case to ~one timeout window.
-  const results = await Promise.all(orgIds.map(async (organizationId) => {
-    try {
-      const { counts, total } = await getGloveEventsForOrg(
-        config, accessToken, organizationId, dateRange, allowedDeviceIds,
-      );
-      return { ok: true as const, counts, total };
-    } catch (e) {
-      return { ok: false as const, organizationId, message: e instanceof Error ? e.message : "failed" };
-    }
-  }));
+  const results = await Promise.all(
+    orgIds.map(async (organizationId) => {
+      try {
+        const { counts, total } = await getGloveEventsForOrg(
+          config,
+          accessToken,
+          organizationId,
+          dateRange,
+          allowedDeviceIds,
+        );
+        return { ok: true as const, counts, total };
+      } catch (e) {
+        return {
+          ok: false as const,
+          organizationId,
+          message: e instanceof Error ? e.message : "failed",
+        };
+      }
+    }),
+  );
 
   const counts = zeroCounts(GLOVE_BREAKDOWN);
   let total = 0;
@@ -593,7 +785,8 @@ async function getGloveSummary(
   for (const r of results) {
     if (r.ok) {
       total += r.total;
-      for (const [k, v] of Object.entries(r.counts)) counts[k] = (counts[k] ?? 0) + v;
+      for (const [k, v] of Object.entries(r.counts))
+        counts[k] = (counts[k] ?? 0) + v;
     } else {
       failedOrgs += 1;
     }
@@ -603,10 +796,16 @@ async function getGloveSummary(
   // meta.partialFailures.gloves and the frontend renders an empty glove chart) rather
   // than silently reporting a real "0 gloves".
   if (orgIds.length > 0 && failedOrgs === orgIds.length) {
-    throw new Error("Glove events could not be loaded for any organization (BIOT upstream timeout).");
+    throw new Error(
+      "Glove events could not be loaded for any organization (BIOT upstream timeout).",
+    );
   }
 
-  const summary: Record<string, unknown> = { total, counts, breakdown: buildBreakdown(counts, GLOVE_BREAKDOWN) };
+  const summary: Record<string, unknown> = {
+    total,
+    counts,
+    breakdown: buildBreakdown(counts, GLOVE_BREAKDOWN),
+  };
   // Partial failure: some orgs returned, some didn't. Report how many were dropped so
   // buildDashboard can flag it in meta.partialFailures without hiding the data we do have.
   if (failedOrgs > 0) summary.partialOrgFailures = failedOrgs;
@@ -648,14 +847,26 @@ async function getGloveEventsForOrg(
     };
 
     const payload = await fetchBiot(
-      config, "GET",
+      config,
+      "GET",
       "/generic-entity/v3/generic-entities/device_event",
       // Patient budget: this is the async glove path, off the dashboard critical path, so we wait
       // out BIOT's slow ABAC expansion (~90s for large distributors) rather than giving up early.
-      { accessToken, query: { searchRequest: JSON.stringify(searchRequest) }, timeoutMs: GLOVE_FETCH_TIMEOUT_MS },
+      {
+        accessToken,
+        query: { searchRequest: JSON.stringify(searchRequest) },
+        timeoutMs: GLOVE_FETCH_TIMEOUT_MS,
+      },
     );
 
-    const items = extractItems(payload, ["items", "data", "results", "rows", "entities", "genericEntities"]);
+    const items = extractItems(payload, [
+      "items",
+      "data",
+      "results",
+      "rows",
+      "entities",
+      "genericEntities",
+    ]);
     if (!items.length) break;
 
     for (const item of items) {
@@ -663,12 +874,15 @@ async function getGloveEventsForOrg(
         // device_event.device_event is the reference to the source device.
         // .id holds the device's `_id` string.
         const deviceRef = (item as Record<string, unknown>).device_event;
-        const deviceId = deviceRef && typeof deviceRef === "object"
-          ? String((deviceRef as Record<string, unknown>).id ?? "")
-          : "";
+        const deviceId =
+          deviceRef && typeof deviceRef === "object"
+            ? String((deviceRef as Record<string, unknown>).id ?? "")
+            : "";
         if (!deviceId || !allowedDeviceIds.has(deviceId)) continue;
       }
-      const norm = normalizeGloveSize((item as Record<string, unknown>).event_cartridge_size);
+      const norm = normalizeGloveSize(
+        (item as Record<string, unknown>).event_cartridge_size,
+      );
       counts[norm.key] += 1;
       total += 1;
     }
@@ -684,7 +898,11 @@ async function getGloveEventsForOrg(
 
 function emptyGloveSummary(): Record<string, unknown> {
   const counts = zeroCounts(GLOVE_BREAKDOWN);
-  return { total: 0, counts, breakdown: buildBreakdown(counts, GLOVE_BREAKDOWN) };
+  return {
+    total: 0,
+    counts,
+    breakdown: buildBreakdown(counts, GLOVE_BREAKDOWN),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +914,9 @@ async function safeWidget<T>(
   fallback: T,
   onError: (msg: string) => void,
 ): Promise<T> {
-  try { return await fn(); } catch (e) {
+  try {
+    return await fn();
+  } catch (e) {
     onError(e instanceof Error ? e.message : "Widget request failed.");
     return fallback;
   }
@@ -706,10 +926,16 @@ async function safeWidget<T>(
 // Device aggregation
 // ---------------------------------------------------------------------------
 
-function getConnectionSummary(devices: NormalizedDevice[]): Record<string, unknown> {
+function getConnectionSummary(
+  devices: NormalizedDevice[],
+): Record<string, unknown> {
   const counts = zeroCounts(CONNECTION_BREAKDOWN);
   for (const d of devices) counts[d.connectionStatusKey] += 1;
-  return { total: devices.length, counts, breakdown: buildBreakdown(counts, CONNECTION_BREAKDOWN) };
+  return {
+    total: devices.length,
+    counts,
+    breakdown: buildBreakdown(counts, CONNECTION_BREAKDOWN),
+  };
 }
 
 // Returns ALL devices (connected + disconnected + unknown) so the frontend can filter
@@ -737,7 +963,11 @@ function getAllDevices(devices: NormalizedDevice[]): Record<string, unknown> {
   }));
   // Default sort: disconnected first, then by lastConnectedAt ascending
   items.sort((a, b) => {
-    const keyOrder: Record<string, number> = { disconnected: 0, unknown: 1, connected: 2 };
+    const keyOrder: Record<string, number> = {
+      disconnected: 0,
+      unknown: 1,
+      connected: 2,
+    };
     const ao = keyOrder[a.connectionStatusKey] ?? 1;
     const bo = keyOrder[b.connectionStatusKey] ?? 1;
     if (ao !== bo) return ao - bo;
@@ -751,7 +981,9 @@ function getAllDevices(devices: NormalizedDevice[]): Record<string, unknown> {
 // Business rule: a machine is Operational when it can deliver (gloves + sanitizer ready).
 // Field: _status.delivery_available (snake_case, consistent with septol_availability1).
 // Falls back to non_operational when the field is absent (null).
-function getOperationalSummary(devices: NormalizedDevice[]): Record<string, unknown> {
+function getOperationalSummary(
+  devices: NormalizedDevice[],
+): Record<string, unknown> {
   const counts = { operational: 0, non_operational: 0 };
   for (const d of devices) {
     if (d.deliveryAvailable === true) {
@@ -765,20 +997,36 @@ function getOperationalSummary(devices: NormalizedDevice[]): Record<string, unkn
   return { total, counts, breakdown };
 }
 
-function getSanitizerSummary(devices: NormalizedDevice[]): Record<string, unknown> {
+function getSanitizerSummary(
+  devices: NormalizedDevice[],
+): Record<string, unknown> {
   const counts = zeroCounts(SANITIZER_BREAKDOWN);
   const items: Record<string, unknown>[] = [];
   for (const d of devices) {
     counts[d.sanitizerStatusKey] += 1;
-    items.push({ id: d.id, status: d.sanitizerStatus, statusKey: d.sanitizerStatusKey, value: d.sanitizerValue });
+    items.push({
+      id: d.id,
+      status: d.sanitizerStatus,
+      statusKey: d.sanitizerStatusKey,
+      value: d.sanitizerValue,
+    });
   }
-  const order: Record<string, number> = { unavailable: 0, unknown: 1, available: 2 };
+  const order: Record<string, number> = {
+    unavailable: 0,
+    unknown: 1,
+    available: 2,
+  };
   items.sort((a, b) => {
     const ao = order[a.statusKey as string] ?? 9;
     const bo = order[b.statusKey as string] ?? 9;
     return ao !== bo ? ao - bo : String(a.id).localeCompare(String(b.id));
   });
-  return { total: items.length, counts, breakdown: buildBreakdown(counts, SANITIZER_BREAKDOWN), devices: items };
+  return {
+    total: items.length,
+    counts,
+    breakdown: buildBreakdown(counts, SANITIZER_BREAKDOWN),
+    devices: items,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -802,14 +1050,20 @@ function getSanitizerSummary(devices: NormalizedDevice[]): Record<string, unknow
 // (00000000-...) dropped the EC1-owned devices — case 2 was broken for real
 // distributor users. Trusting BIOT here is also correct for ordinary org-only
 // users: BIOT returns only their org's devices, so the filter is a no-op for them.
-function deviceMatchesScope(device: unknown, scope: ResolvedScope, viewer: Viewer): boolean {
+function deviceMatchesScope(
+  device: unknown,
+  scope: ResolvedScope,
+  viewer: Viewer,
+): boolean {
   if (viewer.role === "organization") return true;
 
   const ownerOrgId = firstNonEmpty([
     nestedGet(device, ["_ownerOrganization", "id"]),
     nestedGet(device, ["ownerOrganization", "id"]),
   ]) as string | null;
-  const distId = nestedGet(device, ["device_distributor", "id"]) as string | null;
+  const distId = nestedGet(device, ["device_distributor", "id"]) as
+    | string
+    | null;
 
   if (scope.kind === "all") return true;
   if (scope.kind === "distributor") {
@@ -823,7 +1077,11 @@ function deviceMatchesScope(device: unknown, scope: ResolvedScope, viewer: Viewe
 // Cartridge scope match — mirrors deviceMatchesScope. Org-role users and the manufacturer
 // "all" view are never filtered (trust BIOT ABAC). A manufacturer org selection matches by
 // owner-org; a distributor selection matches by cartridge_distributor.id OR child-org membership.
-function cartridgeMatchesScope(cartridge: unknown, scope: ResolvedScope, viewer: Viewer): boolean {
+function cartridgeMatchesScope(
+  cartridge: unknown,
+  scope: ResolvedScope,
+  viewer: Viewer,
+): boolean {
   if (viewer.role === "organization") return true;
   if (scope.kind === "all") return true;
 
@@ -831,7 +1089,9 @@ function cartridgeMatchesScope(cartridge: unknown, scope: ResolvedScope, viewer:
     nestedGet(cartridge, ["_ownerOrganization", "id"]),
     nestedGet(cartridge, ["ownerOrganization", "id"]),
   ]) as string | null;
-  const distId = nestedGet(cartridge, ["cartridge_distributor", "id"]) as string | null;
+  const distId = nestedGet(cartridge, ["cartridge_distributor", "id"]) as
+    | string
+    | null;
 
   if (scope.kind === "distributor") {
     if (distId && distId === scope.id) return true;
@@ -845,8 +1105,10 @@ function cartridgeMatchesScope(cartridge: unknown, scope: ResolvedScope, viewer:
 // may be a real org or the special "<<Global>>" owner for distributor-held stock.
 function normalizeCartridge(cartridge: unknown): Record<string, unknown> {
   const c = cartridge as Record<string, unknown>;
-  const owner = c._ownerOrganization && typeof c._ownerOrganization === "object"
-    ? (c._ownerOrganization as Record<string, unknown>) : {};
+  const owner =
+    c._ownerOrganization && typeof c._ownerOrganization === "object"
+      ? (c._ownerOrganization as Record<string, unknown>)
+      : {};
   return {
     id: String(firstNonEmpty([c._id, c.id]) ?? "Unknown cartridge"),
     stickerId: c.sticker_id ?? null,
@@ -854,30 +1116,48 @@ function normalizeCartridge(cartridge: unknown): Record<string, unknown> {
     size: firstNonEmpty([c.cartridge_size]) as string | null,
     nfcId: firstNonEmpty([c.cartridge_nfc_id]) as string | null,
     organizationId: firstNonEmpty([owner.id, owner._id]) as string | null,
-    organizationName: firstNonEmpty([owner.name, owner.displayName, owner.label]) as string | null,
-    distributorId: nestedGet(c, ["cartridge_distributor", "id"]) as string | null,
-    distributorName: nestedGet(c, ["cartridge_distributor", "name"]) as string | null,
+    organizationName: firstNonEmpty([
+      owner.name,
+      owner.displayName,
+      owner.label,
+    ]) as string | null,
+    distributorId: nestedGet(c, ["cartridge_distributor", "id"]) as
+      | string
+      | null,
+    distributorName: nestedGet(c, ["cartridge_distributor", "name"]) as
+      | string
+      | null,
     amount: typeof c.amount === "number" ? c.amount : null,
-    currentAmount: typeof c.current_amount === "number" ? c.current_amount : null,
+    currentAmount:
+      typeof c.current_amount === "number" ? c.current_amount : null,
     isEmpty: typeof c.is_empty === "boolean" ? c.is_empty : null,
   };
 }
 
 function normalizeDevice(device: unknown): NormalizedDevice {
   const d = device as Record<string, unknown>;
-  const conn = normalizeConnectionStatus(nestedGet(d, ["_status", "_connection", "_connected"]));
-  const san = normalizeSanitizerStatus(nestedGet(d, ["_status", "septol_availability1"]));
-  const owner = d._ownerOrganization && typeof d._ownerOrganization === "object"
-    ? (d._ownerOrganization as Record<string, unknown>) : {};
+  const conn = normalizeConnectionStatus(
+    nestedGet(d, ["_status", "_connection", "_connected"]),
+  );
+  const san = normalizeSanitizerStatus(
+    nestedGet(d, ["_status", "septol_availability1"]),
+  );
+  const owner =
+    d._ownerOrganization && typeof d._ownerOrganization === "object"
+      ? (d._ownerOrganization as Record<string, unknown>)
+      : {};
 
   // Extract full _status object for the detail panel
-  const rawStatus: Record<string, unknown> = (d._status && typeof d._status === "object")
-    ? { ...(d._status as Record<string, unknown>) }
-    : {};
+  const rawStatus: Record<string, unknown> =
+    d._status && typeof d._status === "object"
+      ? { ...(d._status as Record<string, unknown>) }
+      : {};
 
   // delivery_available1 drives the Operational widget and Delivery row in Status tab.
   // Confirmed field name from live API 2026-04-28. Has the `1` suffix like septol_availability1.
-  const deliveryAvailable = nestedGet(d, ["_status", "delivery_available1"]) as boolean | null;
+  const deliveryAvailable = nestedGet(d, ["_status", "delivery_available1"]) as
+    | boolean
+    | null;
 
   // Extract device-level custom fields: any non-underscore-prefixed root field.
   // In BIOT, system fields start with _ (e.g., _id, _status, _ownerOrganization).
@@ -892,19 +1172,33 @@ function normalizeDevice(device: unknown): NormalizedDevice {
 
   // device_distributor is a reference object on the device root: { id, name, templateName: "distributor" }.
   // Confirmed live 2026-05-19. May be absent / null for unassigned devices.
-  const distributorId = nestedGet(d, ["device_distributor", "id"]) as string | null;
-  const distributorName = nestedGet(d, ["device_distributor", "name"]) as string | null;
+  const distributorId = nestedGet(d, ["device_distributor", "id"]) as
+    | string
+    | null;
+  const distributorName = nestedGet(d, ["device_distributor", "name"]) as
+    | string
+    | null;
 
   return {
     id: String(firstNonEmpty([d._id, d.id]) ?? "Unknown device"),
     organizationId: firstNonEmpty([owner.id, owner._id]) as string | null,
-    organizationName: firstNonEmpty([owner.name, owner.displayName, owner.label]) as string | null,
+    organizationName: firstNonEmpty([
+      owner.name,
+      owner.displayName,
+      owner.label,
+    ]) as string | null,
     distributorId: distributorId ?? null,
     distributorName: distributorName ?? null,
-    connected: nestedGet(d, ["_status", "_connection", "_connected"]) as boolean | null,
+    connected: nestedGet(d, ["_status", "_connection", "_connected"]) as
+      | boolean
+      | null,
     connectionStatus: conn.label,
     connectionStatusKey: conn.key,
-    lastConnectedAt: nestedGet(d, ["_status", "_connection", "_lastConnectedTime"]) as string | null,
+    lastConnectedAt: nestedGet(d, [
+      "_status",
+      "_connection",
+      "_lastConnectedTime",
+    ]) as string | null,
     sanitizerStatus: san.label,
     sanitizerStatusKey: san.key,
     sanitizerValue: nestedGet(d, ["_status", "septol_availability1"]),
@@ -927,12 +1221,15 @@ function normalizeSanitizerStatus(v: unknown): { key: string; label: string } {
 }
 
 function normalizeGloveSize(v: unknown): { key: string; label: string } {
-  if (typeof v !== "string" || !v.trim()) return { key: "unknown", label: "Unknown" };
+  if (typeof v !== "string" || !v.trim())
+    return { key: "unknown", label: "Unknown" };
   const n = v.trim().toLowerCase().replace(/[_-]/g, " ").replace(/\s+/g, " ");
   if (n === "s" || n === "small") return { key: "small", label: "Small" };
-  if (n === "m" || n === "medium" || n === "med") return { key: "medium", label: "Medium" };
+  if (n === "m" || n === "medium" || n === "med")
+    return { key: "medium", label: "Medium" };
   if (n === "l" || n === "large") return { key: "large", label: "Large" };
-  if (n === "xl" || n === "xlarge" || n === "x large" || n === "extra large") return { key: "extraLarge", label: "Extra Large" };
+  if (n === "xl" || n === "xlarge" || n === "x large" || n === "extra large")
+    return { key: "extraLarge", label: "Extra Large" };
   return { key: "unknown", label: "Unknown" };
 }
 
@@ -940,7 +1237,10 @@ function normalizeGloveSize(v: unknown): { key: string; label: string } {
 // Viewer / organization / scope
 // ---------------------------------------------------------------------------
 
-function buildViewerIdentity(loginPayload: Record<string, unknown>, selfPayload: Record<string, unknown>): Viewer {
+function buildViewerIdentity(
+  loginPayload: Record<string, unknown>,
+  selfPayload: Record<string, unknown>,
+): Viewer {
   const groups = extractGroups(selfPayload).sort();
   const role = inferRole(groups);
   const ownerOrganizationId = firstNonEmpty([
@@ -950,14 +1250,24 @@ function buildViewerIdentity(loginPayload: Record<string, unknown>, selfPayload:
     selfPayload.ownerOrganizationId,
   ]) as string | null;
   const displayName = firstNonEmpty([
-    selfPayload.fullName, selfPayload.displayName, selfPayload.name,
+    selfPayload.fullName,
+    selfPayload.displayName,
+    selfPayload.name,
     buildFullName(selfPayload.firstName, selfPayload.lastName),
-    selfPayload.email, selfPayload.username, loginPayload.userId,
+    selfPayload.email,
+    selfPayload.username,
+    loginPayload.userId,
   ]) as string | null;
   return {
-    userId: firstNonEmpty([loginPayload.userId, selfPayload._id, selfPayload.id]) as string | null,
+    userId: firstNonEmpty([
+      loginPayload.userId,
+      selfPayload._id,
+      selfPayload.id,
+    ]) as string | null,
     displayName: displayName ?? "BIOT User",
-    email: firstNonEmpty([selfPayload.email, selfPayload.username]) as string | null,
+    email: firstNonEmpty([selfPayload.email, selfPayload.username]) as
+      | string
+      | null,
     role,
     groups,
     ownerOrganizationId,
@@ -972,7 +1282,8 @@ function buildFullName(first: unknown, last: unknown): string | null {
 }
 
 function inferRole(groups: string[]): "manufacturer" | "organization" {
-  for (const g of groups) if (g.toLowerCase().includes("manufacturer")) return "manufacturer";
+  for (const g of groups)
+    if (g.toLowerCase().includes("manufacturer")) return "manufacturer";
   return "organization";
 }
 
@@ -980,19 +1291,32 @@ function extractGroups(payload: unknown): string[] {
   const groups: string[] = [];
   const seen = new Set<string>();
   function collect(v: unknown): void {
-    if (typeof v === "string" && v.trim() && !seen.has(v.trim())) { seen.add(v.trim()); groups.push(v.trim()); return; }
+    if (typeof v === "string" && v.trim() && !seen.has(v.trim())) {
+      seen.add(v.trim());
+      groups.push(v.trim());
+      return;
+    }
     if (v && typeof v === "object" && !Array.isArray(v)) {
       for (const f of ["name", "label", "title", "value"]) {
         const fv = (v as Record<string, unknown>)[f];
-        if (typeof fv === "string" && fv.trim() && !seen.has(fv.trim())) { seen.add(fv.trim()); groups.push(fv.trim()); }
+        if (typeof fv === "string" && fv.trim() && !seen.has(fv.trim())) {
+          seen.add(fv.trim());
+          groups.push(fv.trim());
+        }
       }
     }
   }
   function walk(node: unknown): void {
-    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
     if (!node || typeof node !== "object") return;
     for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
-      if (key.toLowerCase().includes("group") || key.toLowerCase().includes("role")) {
+      if (
+        key.toLowerCase().includes("group") ||
+        key.toLowerCase().includes("role")
+      ) {
         Array.isArray(val) ? val.forEach(collect) : collect(val);
       }
       walk(val);
@@ -1002,7 +1326,11 @@ function extractGroups(payload: unknown): string[] {
   return groups;
 }
 
-function deriveOrganizations(viewer: Viewer, selfPayload: unknown, devices: unknown[]): Organization[] {
+function deriveOrganizations(
+  viewer: Viewer,
+  selfPayload: unknown,
+  devices: unknown[],
+): Organization[] {
   const orgs: Record<string, Organization> = {};
   function add(id: unknown, name: unknown): void {
     if (typeof id !== "string" || !id.trim()) return;
@@ -1011,32 +1339,59 @@ function deriveOrganizations(viewer: Viewer, selfPayload: unknown, devices: unkn
     if (typeof name === "string" && name.trim()) orgs[nid].name = name.trim();
   }
   function walk(node: unknown, path: string): void {
-    if (Array.isArray(node)) { node.forEach((n) => walk(n, path)); return; }
+    if (Array.isArray(node)) {
+      node.forEach((n) => walk(n, path));
+      return;
+    }
     if (!node || typeof node !== "object") return;
     const obj = node as Record<string, unknown>;
     if (path.toLowerCase().includes("organization")) {
-      add(firstNonEmpty([obj.id, obj._id, obj.organizationId, obj.ownerOrganizationId]), firstNonEmpty([obj.name, obj.displayName, obj.label]));
-    } else if (Object.keys(obj).some((k) => k.toLowerCase().includes("organization"))) {
-      add(firstNonEmpty([obj.organizationId, obj.ownerOrganizationId]), firstNonEmpty([obj.organizationName, obj.ownerOrganizationName]));
+      add(
+        firstNonEmpty([
+          obj.id,
+          obj._id,
+          obj.organizationId,
+          obj.ownerOrganizationId,
+        ]),
+        firstNonEmpty([obj.name, obj.displayName, obj.label]),
+      );
+    } else if (
+      Object.keys(obj).some((k) => k.toLowerCase().includes("organization"))
+    ) {
+      add(
+        firstNonEmpty([obj.organizationId, obj.ownerOrganizationId]),
+        firstNonEmpty([obj.organizationName, obj.ownerOrganizationName]),
+      );
     }
-    for (const [k, v] of Object.entries(obj)) walk(v, path ? `${path}.${k}` : k);
+    for (const [k, v] of Object.entries(obj))
+      walk(v, path ? `${path}.${k}` : k);
   }
   walk(selfPayload, "");
   for (const device of devices) {
     const d = device as Record<string, unknown>;
-    const owner = d._ownerOrganization && typeof d._ownerOrganization === "object" ? (d._ownerOrganization as Record<string, unknown>) : null;
-    if (owner) add(firstNonEmpty([owner.id, owner._id]), firstNonEmpty([owner.name, owner.displayName, owner.label]));
+    const owner =
+      d._ownerOrganization && typeof d._ownerOrganization === "object"
+        ? (d._ownerOrganization as Record<string, unknown>)
+        : null;
+    if (owner)
+      add(
+        firstNonEmpty([owner.id, owner._id]),
+        firstNonEmpty([owner.name, owner.displayName, owner.label]),
+      );
   }
   add(viewer.ownerOrganizationId, viewer.ownerOrganizationId);
   const items = Object.values(orgs);
   items.sort((a, b) => {
-    const an = (a.name || a.id).toLowerCase(), bn = (b.name || b.id).toLowerCase();
+    const an = (a.name || a.id).toLowerCase(),
+      bn = (b.name || b.id).toLowerCase();
     if (an !== bn) return an < bn ? -1 : 1;
     return a.id.toLowerCase() < b.id.toLowerCase() ? -1 : 1;
   });
   if (viewer.role === "organization" && viewer.ownerOrganizationId) {
     const filtered = items.filter((o) => o.id === viewer.ownerOrganizationId);
-    return filtered.length ? filtered : [{ id: viewer.ownerOrganizationId, name: viewer.ownerOrganizationId }];
+    return filtered.length
+      ? filtered
+      : [{ id: viewer.ownerOrganizationId, name: viewer.ownerOrganizationId }];
   }
   return items;
 }
@@ -1059,11 +1414,17 @@ interface ResolvedScope {
   selectedToken: string;
 }
 
-function parseScopeToken(raw: string | undefined, knownOrgIds: Set<string>, knownDistIds: Set<string>): { kind: "all" | "organization" | "distributor"; id: string | null } {
+function parseScopeToken(
+  raw: string | undefined,
+  knownOrgIds: Set<string>,
+  knownDistIds: Set<string>,
+): { kind: "all" | "organization" | "distributor"; id: string | null } {
   const t = typeof raw === "string" ? raw.trim() : "";
   if (!t || t === "all") return { kind: "all", id: null };
-  if (t.startsWith("dist:")) return { kind: "distributor", id: t.slice("dist:".length) };
-  if (t.startsWith("org:")) return { kind: "organization", id: t.slice("org:".length) };
+  if (t.startsWith("dist:"))
+    return { kind: "distributor", id: t.slice("dist:".length) };
+  if (t.startsWith("org:"))
+    return { kind: "organization", id: t.slice("org:".length) };
   // Legacy: a bare value (UUID or otherwise). Disambiguate against known sets so
   // a value previously stored in localStorage / linked URL still works.
   if (knownDistIds.has(t)) return { kind: "distributor", id: t };
@@ -1096,30 +1457,54 @@ function resolveScope(
     };
   }
 
-  const parsed = parseScopeToken(requestedToken, new Set(availableOrgs), availableDistIds);
+  const parsed = parseScopeToken(
+    requestedToken,
+    new Set(availableOrgs),
+    availableDistIds,
+  );
   if (parsed.kind === "all") {
     return {
-      kind: "all", id: null, organizationIds: availableOrgs,
-      label: "All organizations", selectedToken: "all",
+      kind: "all",
+      id: null,
+      organizationIds: availableOrgs,
+      label: "All organizations",
+      selectedToken: "all",
     };
   }
-  if (parsed.kind === "distributor" && parsed.id && availableDistIds.has(parsed.id)) {
+  if (
+    parsed.kind === "distributor" &&
+    parsed.id &&
+    availableDistIds.has(parsed.id)
+  ) {
     const childOrgIds = distributorToOrgIds[parsed.id] ?? [];
     return {
-      kind: "distributor", id: parsed.id, organizationIds: childOrgIds,
-      label: distLabel(distributors, parsed.id), selectedToken: `dist:${parsed.id}`,
+      kind: "distributor",
+      id: parsed.id,
+      organizationIds: childOrgIds,
+      label: distLabel(distributors, parsed.id),
+      selectedToken: `dist:${parsed.id}`,
     };
   }
-  if (parsed.kind === "organization" && parsed.id && availableOrgs.includes(parsed.id)) {
+  if (
+    parsed.kind === "organization" &&
+    parsed.id &&
+    availableOrgs.includes(parsed.id)
+  ) {
     return {
-      kind: "organization", id: parsed.id, organizationIds: [parsed.id],
-      label: orgLabel(organizations, parsed.id), selectedToken: `org:${parsed.id}`,
+      kind: "organization",
+      id: parsed.id,
+      organizationIds: [parsed.id],
+      label: orgLabel(organizations, parsed.id),
+      selectedToken: `org:${parsed.id}`,
     };
   }
   // Unknown / not-available selection — silently fall back to "all" for manufacturers.
   return {
-    kind: "all", id: null, organizationIds: availableOrgs,
-    label: "All organizations", selectedToken: "all",
+    kind: "all",
+    id: null,
+    organizationIds: availableOrgs,
+    label: "All organizations",
+    selectedToken: "all",
   };
 }
 
@@ -1138,11 +1523,15 @@ function distLabel(distributors: Distributor[], id: string | null): string {
 //   _ownerOrganization.id  = child org id
 //   organization_distributor.id = distributor id
 // One distributor may have many child orgs; one org may belong to many distributors.
-function buildDistributorToOrgsMap(bridges: unknown[]): Record<string, string[]> {
+function buildDistributorToOrgsMap(
+  bridges: unknown[],
+): Record<string, string[]> {
   const out: Record<string, Set<string>> = {};
   for (const b of bridges) {
     const orgId = nestedGet(b, ["_ownerOrganization", "id"]) as string | null;
-    const distId = nestedGet(b, ["organization_distributor", "id"]) as string | null;
+    const distId = nestedGet(b, ["organization_distributor", "id"]) as
+      | string
+      | null;
     if (!orgId || !distId) continue;
     (out[distId] ??= new Set()).add(orgId);
   }
@@ -1173,12 +1562,16 @@ function normalizeDistributors(raw: unknown[]): Distributor[] {
 function resolveDateRange(params: Record<string, string>): DateRange {
   const now = new Date();
   const defaultTo = dateOnly(now);
-  const defaultFrom = dateOnly(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
+  const defaultFrom = dateOnly(
+    new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000),
+  );
   const from = params.from || defaultFrom;
   const to = params.to || defaultTo;
-  if (from > to) throw new Error("The start date must be on or before the end date.");
+  if (from > to)
+    throw new Error("The start date must be on or before the end date.");
   return {
-    from, to,
+    from,
+    to,
     // Use provided ISO strings from frontend (which convert local time → UTC).
     // Fallback: midnight UTC if not provided (no time filtering).
     fromIso: params.fromIso || `${from}T00:00:00.000Z`,
@@ -1214,17 +1607,33 @@ const BIOT_FETCH_TIMEOUT_MS = 15000;
 const GLOVE_FETCH_TIMEOUT_MS = 85000;
 
 async function fetchBiot(
-  config: BiotConfig, method: string, path: string,
-  options: { accessToken?: string; body?: unknown; query?: Record<string, string>; expectedStatuses?: number[]; baseUrl?: string; timeoutMs?: number } = {},
+  config: BiotConfig,
+  method: string,
+  path: string,
+  options: {
+    accessToken?: string;
+    body?: unknown;
+    query?: Record<string, string>;
+    expectedStatuses?: number[];
+    baseUrl?: string;
+    timeoutMs?: number;
+  } = {},
 ): Promise<Record<string, unknown>> {
   const base = options.baseUrl ?? config.baseUrl;
   const url = buildUrl(`${base}${path}`, options.query ?? {});
   // Explicit User-Agent. Deno's fetch already sends one (so BIOT's WAF, which 403s requests
   // with no UA, is satisfied), but we set it explicitly for clarity and cross-runtime parity.
-  const headers: Record<string, string> = { Accept: "application/json", "User-Agent": "biot-dashboard-deno" };
-  if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "User-Agent": "biot-dashboard-deno",
+  };
+  if (options.accessToken)
+    headers.Authorization = `Bearer ${options.accessToken}`;
   const init: RequestInit = { method, headers };
-  if (options.body !== undefined) { headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(options.body);
+  }
   const timeoutMs = options.timeoutMs ?? BIOT_FETCH_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1233,7 +1642,9 @@ async function fetchBiot(
     res = await fetch(url, { ...init, signal: controller.signal });
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error(`BIOT request timed out after ${timeoutMs / 1000}s (${path}).`);
+      throw new Error(
+        `BIOT request timed out after ${timeoutMs / 1000}s (${path}).`,
+      );
     }
     throw e;
   } finally {
@@ -1241,17 +1652,33 @@ async function fetchBiot(
   }
   const text = await res.text();
   let payload: unknown;
-  try { payload = JSON.parse(text); } catch { throw new Error("BIOT returned a non-JSON response."); }
-  if (res.status === 401) throw new BiotAuthError(extractErrorMessage(payload) || "BIOT authentication failed. Your session may have expired.");
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error("BIOT returned a non-JSON response.");
+  }
+  if (res.status === 401)
+    throw new BiotAuthError(
+      extractErrorMessage(payload) ||
+        "BIOT authentication failed. Your session may have expired.",
+    );
   const expected = options.expectedStatuses ?? [200];
-  if (!expected.includes(res.status)) throw new Error(extractErrorMessage(payload) || `BIOT request failed with status ${res.status}.`);
+  if (!expected.includes(res.status))
+    throw new Error(
+      extractErrorMessage(payload) ||
+        `BIOT request failed with status ${res.status}.`,
+    );
   return payload as Record<string, unknown>;
 }
 
 function buildUrl(base: string, query: Record<string, string>): string {
-  const keys = Object.keys(query).filter((k) => query[k] != null && query[k] !== "");
+  const keys = Object.keys(query).filter(
+    (k) => query[k] != null && query[k] !== "",
+  );
   if (!keys.length) return base;
-  const qs = keys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`).join("&");
+  const qs = keys
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`)
+    .join("&");
   return `${base}${base.includes("?") ? "&" : "?"}${qs}`;
 }
 
@@ -1259,18 +1686,36 @@ function buildUrl(base: string, query: Record<string, string>): string {
 // Data extraction
 // ---------------------------------------------------------------------------
 
-function extractItems(payload: unknown, preferredKeys: string[] = []): unknown[] {
-  if (Array.isArray(payload)) return payload.filter((i) => i && typeof i === "object" && !Array.isArray(i));
+function extractItems(
+  payload: unknown,
+  preferredKeys: string[] = [],
+): unknown[] {
+  if (Array.isArray(payload))
+    return payload.filter(
+      (i) => i && typeof i === "object" && !Array.isArray(i),
+    );
   if (!payload || typeof payload !== "object") return [];
-  const keys = [...preferredKeys, "items", "data", "results", "content", "rows", "entities", "genericEntities"];
+  const keys = [
+    ...preferredKeys,
+    "items",
+    "data",
+    "results",
+    "content",
+    "rows",
+    "entities",
+    "genericEntities",
+  ];
   const seen = new Set<string>();
   for (const key of keys) {
-    if (seen.has(key)) continue; seen.add(key);
+    if (seen.has(key)) continue;
+    seen.add(key);
     const v = (payload as Record<string, unknown>)[key];
-    if (Array.isArray(v)) return v.filter((i) => i && typeof i === "object" && !Array.isArray(i));
+    if (Array.isArray(v))
+      return v.filter((i) => i && typeof i === "object" && !Array.isArray(i));
   }
   for (const v of Object.values(payload as Record<string, unknown>)) {
-    if (Array.isArray(v)) return v.filter((i) => i && typeof i === "object" && !Array.isArray(i));
+    if (Array.isArray(v))
+      return v.filter((i) => i && typeof i === "object" && !Array.isArray(i));
   }
   return [];
 }
@@ -1297,13 +1742,25 @@ function extractTotalPages(payload: unknown): number | null {
 function extractErrorMessage(payload: unknown): string {
   if (!payload) return "";
   if (typeof payload === "string" && payload.trim()) return payload.trim();
-  if (Array.isArray(payload)) { for (const i of payload) { const m = extractErrorMessage(i); if (m) return m; } return ""; }
+  if (Array.isArray(payload)) {
+    for (const i of payload) {
+      const m = extractErrorMessage(i);
+      if (m) return m;
+    }
+    return "";
+  }
   if (typeof payload === "object") {
     const p = payload as Record<string, unknown>;
     for (const f of ["message", "error", "detail", "title", "description"]) {
-      if (typeof p[f] === "string" && (p[f] as string).trim()) return (p[f] as string).trim();
+      if (typeof p[f] === "string" && (p[f] as string).trim())
+        return (p[f] as string).trim();
     }
-    if (Array.isArray(p.errors)) { for (const e of p.errors) { const m = extractErrorMessage(e); if (m) return m; } }
+    if (Array.isArray(p.errors)) {
+      for (const e of p.errors) {
+        const m = extractErrorMessage(e);
+        if (m) return m;
+      }
+    }
   }
   return "";
 }
@@ -1312,11 +1769,19 @@ function extractErrorMessage(payload: unknown): string {
 // Utilities
 // ---------------------------------------------------------------------------
 
-function buildBreakdown(counts: Record<string, number>, labels: [string, string][]): Record<string, unknown>[] {
+function buildBreakdown(
+  counts: Record<string, number>,
+  labels: [string, string][],
+): Record<string, unknown>[] {
   const total = Object.values(counts).reduce((s, v) => s + v, 0);
   return labels.map(([key, label]) => {
     const value = counts[key] ?? 0;
-    return { key, label, value, percentage: total ? Number(((value / total) * 100).toFixed(1)) : 0 };
+    return {
+      key,
+      label,
+      value,
+      percentage: total ? Number(((value / total) * 100).toFixed(1)) : 0,
+    };
   });
 }
 
@@ -1338,7 +1803,13 @@ function nestedGet(source: unknown, keys: string[]): unknown {
 function firstNonEmpty(values: unknown[]): unknown {
   for (const v of values) {
     if (typeof v === "string" && v.trim()) return v.trim();
-    if (v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)) return v;
+    if (
+      v !== null &&
+      v !== undefined &&
+      v !== "" &&
+      !(Array.isArray(v) && !v.length)
+    )
+      return v;
   }
   return null;
 }

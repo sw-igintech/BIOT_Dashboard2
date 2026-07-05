@@ -24,3 +24,6 @@ deno/deno.jsonc
 
 # Node deps (e.g. local Playwright for preview E2E) — never commit
 node_modules/
+
+.env
+.mine

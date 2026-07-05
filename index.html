@@ -1,392 +1,516 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light" />
-  <title>IGIN SMART - IOT</title>
-  <script>
-    window.DASHBOARD_CONFIG = {
-      supabaseEdgeUrl: "https://biot-dashboard-staging.sw-igin.deno.net",
-      supabaseAnonKey: "sb_publishable_z7FBfMgMJYiZPfvgYPx_1Q_Q5WbevXJ"
-    };
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/flatpickr" defer></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
-  <link rel="stylesheet" href="./dashboard.css?v=20260630-3" />
-  <script src="./dashboard.js?v=20260630-3" defer></script>
-</head>
-<body>
-
-  <!-- Login view — shown when not authenticated -->
-  <div id="loginView" class="login-overlay hidden">
-    <div class="login-card">
-      <div class="login-logo">
-        <!--
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>IGIN SMART - IOT</title>
+    <script>
+      window.DASHBOARD_CONFIG = {
+        supabaseEdgeUrl: "https://biot-dashboard-staging.sw-igin.deno.net",
+        supabaseAnonKey: "sb_publishable_z7FBfMgMJYiZPfvgYPx_1Q_Q5WbevXJ",
+      };
+    </script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+      defer
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr" defer></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+    />
+    <link rel="stylesheet" href="./dashboard.css?v=20260630-3" />
+    <script src="./dashboard.js?v=20260630-3" defer></script>
+  </head>
+  <body>
+    <!-- Login view — shown when not authenticated -->
+    <div id="loginView" class="login-overlay hidden">
+      <div class="login-card">
+        <div class="login-logo">
+          <!--
           LOGO — to replace: swap the src below with your logo file path.
           File: logo.svg (project root)
           Recommended: SVG or PNG, ideally square, 48–64 px display size.
         -->
-        <img src="./logo.svg" alt="IGIN SMART" class="brand-logo" />
-        <div class="eyebrow">IGIN SMART</div>
-        <h1>IoT</h1>
-      </div>
-      <form id="loginForm" class="login-form" novalidate>
-        <div id="loginError" class="inline-error hidden"></div>
-        <label class="field">
-          <span>Email</span>
-          <input id="loginEmail" type="email" autocomplete="email" autofocus placeholder="your@email.com" />
-        </label>
-        <div class="field">
-          <span>Password</span>
-          <div class="password-wrap">
-            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
-            <button type="button" id="togglePassword" class="toggle-password-btn">Show</button>
-          </div>
+          <img src="./logo.svg" alt="IGIN SMART" class="brand-logo" />
+          <div class="eyebrow">IGIN SMART</div>
+          <h1>IOT</h1>
         </div>
-        <button id="loginBtn" class="primary-button login-submit" type="submit">Sign In</button>
-      </form>
+        <form id="loginForm" class="login-form" novalidate>
+          <div id="loginError" class="inline-error hidden"></div>
+          <label class="field">
+            <span>Email</span>
+            <input
+              id="loginEmail"
+              type="email"
+              autocomplete="email"
+              autofocus
+              placeholder="your@email.com"
+            />
+          </label>
+          <div class="field">
+            <span>Password</span>
+            <div class="password-wrap">
+              <input
+                id="loginPassword"
+                type="password"
+                autocomplete="current-password"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                id="togglePassword"
+                class="toggle-password-btn"
+              >
+                Show
+              </button>
+            </div>
+          </div>
+          <button
+            id="loginBtn"
+            class="primary-button login-submit"
+            type="submit"
+          >
+            Sign In
+          </button>
+        </form>
+      </div>
     </div>
-  </div>
 
-  <!-- Dashboard view — shown when authenticated -->
-  <div id="dashboardView" class="app-shell product-shell hidden">
-    <main class="main product-main">
-      <header class="dashboard-head">
-        <div class="brand-bar">
-          <!--
+    <!-- Dashboard view — shown when authenticated -->
+    <div id="dashboardView" class="app-shell product-shell hidden">
+      <main class="main product-main">
+        <header class="dashboard-head">
+          <div class="brand-bar">
+            <!--
             LOGO — to replace: swap the src below with your logo file path.
             File: logo.svg (project root)
           -->
-          <img src="./logo.svg" alt="IGIN SMART" class="brand-logo-sm" />
-          <div class="dashboard-heading">
-            <div class="eyebrow">IGIN SMART</div>
-            <h1>IoT</h1>
-          </div>
-        </div>
-        <div class="header-actions">
-          <span id="userInfo" class="user-info"></span>
-          <button id="logoutBtn" class="ghost-button" type="button">Sign Out</button>
-        </div>
-      </header>
-
-      <section class="filter-card compact-filters">
-        <div class="filter-grid product-filter-grid">
-          <div class="field">
-            <span>From</span>
-            <div class="datetime-row">
-              <input id="fromDate" type="text" class="date-input" autocomplete="off" />
-              <input id="fromTime" type="time" value="00:00" class="time-input" />
+            <img src="./logo.svg" alt="IGIN SMART" class="brand-logo-sm" />
+            <div class="dashboard-heading">
+              <div class="eyebrow">IGIN SMART</div>
+              <h1>IoT</h1>
             </div>
           </div>
+          <div class="header-actions">
+            <span id="userInfo" class="user-info"></span>
+            <button id="logoutBtn" class="ghost-button" type="button">
+              Sign Out
+            </button>
+          </div>
+        </header>
 
-          <div class="field">
-            <span>To</span>
-            <div class="datetime-row">
-              <input id="toDate" type="text" class="date-input" autocomplete="off" />
-              <input id="toTime" type="time" value="23:59" class="time-input" />
+        <section class="filter-card compact-filters">
+          <div class="filter-grid product-filter-grid">
+            <div class="field">
+              <span>From</span>
+              <div class="datetime-row">
+                <input
+                  id="fromDate"
+                  type="text"
+                  class="date-input"
+                  autocomplete="off"
+                />
+                <input
+                  id="fromTime"
+                  type="time"
+                  value="00:00"
+                  class="time-input"
+                />
+              </div>
+            </div>
+
+            <div class="field">
+              <span>To</span>
+              <div class="datetime-row">
+                <input
+                  id="toDate"
+                  type="text"
+                  class="date-input"
+                  autocomplete="off"
+                />
+                <input
+                  id="toTime"
+                  type="time"
+                  value="23:59"
+                  class="time-input"
+                />
+              </div>
+            </div>
+
+            <label id="organizationField" class="field hidden">
+              <span id="organizationFieldLabel">Scope</span>
+              <select id="organizationSelect"></select>
+            </label>
+
+            <div class="filter-actions">
+              <button id="refreshBtn" class="primary-button" type="button">
+                Apply
+              </button>
             </div>
           </div>
+        </section>
 
-          <label id="organizationField" class="field hidden">
-            <span id="organizationFieldLabel">Scope</span>
-            <select id="organizationSelect"></select>
-          </label>
-
-          <div class="filter-actions">
-            <button id="refreshBtn" class="primary-button" type="button">Apply</button>
-          </div>
+        <div id="dashboardError" class="inline-error hidden"></div>
+        <div id="dashboardLoading" class="loading-strip hidden">
+          Refreshing dashboard...
         </div>
-      </section>
 
-      <div id="dashboardError" class="inline-error hidden"></div>
-      <div id="dashboardLoading" class="loading-strip hidden">Refreshing dashboard...</div>
-
-      <!-- 4 chart cards in 2×2 grid -->
-      <section class="card-grid">
-
-        <article class="card chart-card">
-          <div class="card-header simple-card-header">
-            <h3>Device Connection Status</h3>
-          </div>
-          <div id="connectionMetrics" class="metric-grid"></div>
-          <div class="chart-layout">
-            <div class="chart-area">
-              <canvas id="connectionChart" aria-label="Device connection status chart"></canvas>
+        <!-- 4 chart cards in 2×2 grid -->
+        <section class="card-grid">
+          <article class="card chart-card">
+            <div class="card-header simple-card-header">
+              <h3>Device Connection Status</h3>
             </div>
-            <div id="connectionLegend" class="legend"></div>
-          </div>
-        </article>
-
-        <article class="card chart-card">
-          <div class="card-header simple-card-header">
-            <h3>Glove Consumption</h3>
-          </div>
-          <!-- Glove status overlay — shown while loading, or when metrics are temporarily
-               unavailable (BIOT device_event upstream issue). Hidden when real data/zero renders. -->
-          <div id="gloveStatus" class="glove-status hidden" role="status" aria-live="polite"></div>
-          <!-- Glove data content — hidden while the status overlay is shown. -->
-          <div id="gloveContent">
-            <div id="gloveMetrics" class="metric-grid"></div>
+            <div id="connectionMetrics" class="metric-grid"></div>
             <div class="chart-layout">
               <div class="chart-area">
-                <canvas id="gloveChart" aria-label="Glove consumption chart"></canvas>
-                <!-- Real-zero state: a clear caption replaces the (empty) chart. -->
-                <div id="gloveEmptyNote" class="glove-empty-note hidden">No glove events in the selected period.</div>
+                <canvas
+                  id="connectionChart"
+                  aria-label="Device connection status chart"
+                ></canvas>
               </div>
-              <div id="gloveLegend" class="legend"></div>
+              <div id="connectionLegend" class="legend"></div>
             </div>
-            <div id="gloveTip" class="glove-tip hidden"></div>
-          </div>
-        </article>
+          </article>
 
-        <article class="card chart-card">
-          <div class="card-header simple-card-header">
-            <h3>Sanitizer Status</h3>
-          </div>
-          <div id="sanitizerMetrics" class="metric-grid"></div>
-          <div class="chart-layout">
-            <div class="chart-area">
-              <canvas id="sanitizerChart" aria-label="Sanitizer status chart"></canvas>
+          <article class="card chart-card">
+            <div class="card-header simple-card-header">
+              <h3>Glove Consumption</h3>
             </div>
-            <div id="sanitizerLegend" class="legend"></div>
-          </div>
-        </article>
-
-        <article class="card chart-card">
-          <div class="card-header simple-card-header">
-            <h3>Operational Status</h3>
-            <div class="card-header-hint" title="Operational = Delivery Available. Based on _status.delivery_available.">Based on delivery</div>
-          </div>
-          <div id="operationalMetrics" class="metric-grid"></div>
-          <div class="chart-layout">
-            <div class="chart-area">
-              <canvas id="operationalChart" aria-label="Operational status chart"></canvas>
+            <!-- Glove status overlay — shown while loading, or when metrics are temporarily
+               unavailable (BIOT device_event upstream issue). Hidden when real data/zero renders. -->
+            <div
+              id="gloveStatus"
+              class="glove-status hidden"
+              role="status"
+              aria-live="polite"
+            ></div>
+            <!-- Glove data content — hidden while the status overlay is shown. -->
+            <div id="gloveContent">
+              <div id="gloveMetrics" class="metric-grid"></div>
+              <div class="chart-layout">
+                <div class="chart-area">
+                  <canvas
+                    id="gloveChart"
+                    aria-label="Glove consumption chart"
+                  ></canvas>
+                  <!-- Real-zero state: a clear caption replaces the (empty) chart. -->
+                  <div id="gloveEmptyNote" class="glove-empty-note hidden">
+                    No glove events in the selected period.
+                  </div>
+                </div>
+                <div id="gloveLegend" class="legend"></div>
+              </div>
+              <div id="gloveTip" class="glove-tip hidden"></div>
             </div>
-            <div id="operationalLegend" class="legend"></div>
-          </div>
-        </article>
+          </article>
 
-      </section>
+          <article class="card chart-card">
+            <div class="card-header simple-card-header">
+              <h3>Sanitizer Status</h3>
+            </div>
+            <div id="sanitizerMetrics" class="metric-grid"></div>
+            <div class="chart-layout">
+              <div class="chart-area">
+                <canvas
+                  id="sanitizerChart"
+                  aria-label="Sanitizer status chart"
+                ></canvas>
+              </div>
+              <div id="sanitizerLegend" class="legend"></div>
+            </div>
+          </article>
 
-      <!-- Machines table (filterable) -->
-      <section id="machinesTableSection" class="table-grid">
-        <article class="card table-card">
-          <div class="card-header">
-            <div class="table-title-row">
-              <h3 id="machinesTableTitle">Disconnected Machines</h3>
-              <div class="connection-filter-chips">
-                <button class="filter-chip" data-filter="all" type="button">All</button>
-                <button class="filter-chip filter-chip--active" data-filter="disconnected" type="button">Disconnected</button>
-                <button class="filter-chip" data-filter="connected" type="button">Connected</button>
+          <article class="card chart-card">
+            <div class="card-header simple-card-header">
+              <h3>Operational Status</h3>
+              <div
+                class="card-header-hint"
+                title="Operational = Delivery Available. Based on _status.delivery_available."
+              >
+                Based on delivery
               </div>
             </div>
-            <div id="machinesCount" class="count-badge">0</div>
-          </div>
-
-          <div class="table-search-row">
-            <input id="machineSearch" type="search" placeholder="Search by machine ID…" class="table-search-input" autocomplete="off" />
-          </div>
-
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Last Connected At</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="machinesTableBody"></tbody>
-            </table>
-          </div>
-
-          <div id="machinesEmpty" class="empty-state hidden">
-            No machines found for this filter.
-          </div>
-        </article>
-
-      </section>
-
-      <!-- Cartridges table -->
-      <section id="cartridgesTableSection" class="table-grid">
-        <article class="card table-card">
-          <div class="card-header">
-            <div class="table-title-row">
-              <h3>Cartridges</h3>
+            <div id="operationalMetrics" class="metric-grid"></div>
+            <div class="chart-layout">
+              <div class="chart-area">
+                <canvas
+                  id="operationalChart"
+                  aria-label="Operational status chart"
+                ></canvas>
+              </div>
+              <div id="operationalLegend" class="legend"></div>
             </div>
-            <div id="cartridgesCount" class="count-badge">0</div>
-          </div>
+          </article>
+        </section>
 
-          <div class="table-search-row">
-            <input id="cartridgeSearch" type="search" placeholder="Search by cartridge ID…" class="table-search-input" autocomplete="off" />
-          </div>
+        <!-- Machines table (filterable) -->
+        <section id="machinesTableSection" class="table-grid">
+          <article class="card table-card">
+            <div class="card-header">
+              <div class="table-title-row">
+                <h3 id="machinesTableTitle">Disconnected Machines</h3>
+                <div class="connection-filter-chips">
+                  <button class="filter-chip" data-filter="all" type="button">
+                    All
+                  </button>
+                  <button
+                    class="filter-chip filter-chip--active"
+                    data-filter="disconnected"
+                    type="button"
+                  >
+                    Disconnected
+                  </button>
+                  <button
+                    class="filter-chip"
+                    data-filter="connected"
+                    type="button"
+                  >
+                    Connected
+                  </button>
+                </div>
+              </div>
+              <div id="machinesCount" class="count-badge">0</div>
+            </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Cartridge</th>
-                  <th>Size</th>
-                  <th>Distributor</th>
-                  <th>Owner Org</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="cartridgesTableBody"></tbody>
-            </table>
-          </div>
+            <div class="table-search-row">
+              <input
+                id="machineSearch"
+                type="search"
+                placeholder="Search by machine ID…"
+                class="table-search-input"
+                autocomplete="off"
+              />
+            </div>
 
-          <div id="cartridgesEmpty" class="empty-state hidden">
-            No cartridges found.
-          </div>
-          <div id="cartridgesHint" class="empty-state hidden">
-            Select an organization or distributor above to view its cartridges.
-          </div>
-        </article>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Last Connected At</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="machinesTableBody"></tbody>
+              </table>
+            </div>
 
-      </section>
+            <div id="machinesEmpty" class="empty-state hidden">
+              No machines found for this filter.
+            </div>
+          </article>
+        </section>
 
-      <!-- Device detail modal — appears when a machine row is clicked -->
-      <div id="deviceDetailModal" class="modal-overlay hidden">
-      <section id="deviceDetailPanel" class="card detail-panel modal-panel">
-        <div class="detail-panel-header">
-          <div>
-            <div class="eyebrow">Machine Details</div>
-            <div id="detailDeviceId" class="detail-device-id">—</div>
-          </div>
-          <button id="closeDetailBtn" class="ghost-button" type="button">Close</button>
+        <!-- Cartridges table -->
+        <section id="cartridgesTableSection" class="table-grid">
+          <article class="card table-card">
+            <div class="card-header">
+              <div class="table-title-row">
+                <h3>Cartridges</h3>
+              </div>
+              <div id="cartridgesCount" class="count-badge">0</div>
+            </div>
+
+            <div class="table-search-row">
+              <input
+                id="cartridgeSearch"
+                type="search"
+                placeholder="Search by cartridge ID…"
+                class="table-search-input"
+                autocomplete="off"
+              />
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cartridge</th>
+                    <th>Size</th>
+                    <th>Distributor</th>
+                    <th>Owner Org</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="cartridgesTableBody"></tbody>
+              </table>
+            </div>
+
+            <div id="cartridgesEmpty" class="empty-state hidden">
+              No cartridges found.
+            </div>
+            <div id="cartridgesHint" class="empty-state hidden">
+              Select an organization or distributor above to view its
+              cartridges.
+            </div>
+          </article>
+        </section>
+
+        <!-- Device detail modal — appears when a machine row is clicked -->
+        <div id="deviceDetailModal" class="modal-overlay hidden">
+          <section id="deviceDetailPanel" class="card detail-panel modal-panel">
+            <div class="detail-panel-header">
+              <div>
+                <div class="eyebrow">Machine Details</div>
+                <div id="detailDeviceId" class="detail-device-id">—</div>
+              </div>
+              <button id="closeDetailBtn" class="ghost-button" type="button">
+                Close
+              </button>
+            </div>
+
+            <div class="detail-tabs" role="tablist">
+              <button
+                class="detail-tab detail-tab--active"
+                data-tab="status"
+                type="button"
+                role="tab"
+              >
+                Status
+              </button>
+              <button
+                class="detail-tab"
+                data-tab="settings"
+                type="button"
+                role="tab"
+              >
+                Settings
+              </button>
+            </div>
+
+            <!-- Status tab -->
+            <div id="detailTabStatus" class="detail-content" role="tabpanel">
+              <div class="detail-grid">
+                <div class="detail-section">
+                  <div class="detail-section-title">Connectivity</div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Status</span>
+                    <span id="detailConnStatus">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Interface</span>
+                    <span id="detailConnInterface">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Last Connected</span>
+                    <span id="detailLastConnected">—</span>
+                  </div>
+                </div>
+
+                <div class="detail-section">
+                  <div class="detail-section-title">Status</div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Delivery Available</span>
+                    <span id="detailDelivery">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Sanitizer</span>
+                    <span id="detailSanitizerAvail">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Bin Level</span>
+                    <span id="detailBinLevel">—</span>
+                  </div>
+                  <div class="detail-section-title" style="margin-top: 0.75rem">
+                    Gloves In Stock
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Small</span>
+                    <span id="detailGlovesSmall">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Medium</span>
+                    <span id="detailGlovesMedium">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Large</span>
+                    <span id="detailGlovesLarge">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Extra Large</span>
+                    <span id="detailGlovesXL">—</span>
+                  </div>
+                </div>
+
+                <div class="detail-section">
+                  <div class="detail-section-title">Organization</div>
+                  <div id="detailDistributorRow" class="detail-row hidden">
+                    <span class="detail-row-label">Distributor</span>
+                    <span id="detailDistributor">—</span>
+                  </div>
+                  <div id="detailEndUserRow" class="detail-row hidden">
+                    <span class="detail-row-label">End User</span>
+                    <span id="detailEndUser">—</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Settings tab -->
+            <div
+              id="detailTabSettings"
+              class="detail-content hidden"
+              role="tabpanel"
+            >
+              <div id="settingsLoadingMsg" class="detail-loading hidden">
+                Loading settings…
+              </div>
+              <div
+                id="settingsErrorMsg"
+                class="detail-loading detail-loading--error hidden"
+              >
+                Could not load settings.
+              </div>
+              <div class="detail-grid">
+                <div class="detail-section">
+                  <div class="detail-section-title">Software</div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">SW Version</span>
+                    <span id="detailSwVersion">—</span>
+                  </div>
+                </div>
+
+                <div class="detail-section">
+                  <div class="detail-section-title">Glove Settings</div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Default Size</span>
+                    <span id="detailDefaultGloveSize">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">NFC Card Required</span>
+                    <span id="detailNfcRequired">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">2nd Glove Prompt</span>
+                    <span id="detailSecondGlovePrompt">—</span>
+                  </div>
+                </div>
+
+                <div class="detail-section">
+                  <div class="detail-section-title">Sanitizer Settings</div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Serving Volume</span>
+                    <span id="detailSanitizerVolume">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Side</span>
+                    <span id="detailSanitizerSide">—</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-row-label">Mandatory</span>
+                    <span id="detailSanitizerMandatory">—</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
-
-        <div class="detail-tabs" role="tablist">
-          <button class="detail-tab detail-tab--active" data-tab="status" type="button" role="tab">Status</button>
-          <button class="detail-tab" data-tab="settings" type="button" role="tab">Settings</button>
-        </div>
-
-        <!-- Status tab -->
-        <div id="detailTabStatus" class="detail-content" role="tabpanel">
-          <div class="detail-grid">
-
-            <div class="detail-section">
-              <div class="detail-section-title">Connectivity</div>
-              <div class="detail-row">
-                <span class="detail-row-label">Status</span>
-                <span id="detailConnStatus">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Interface</span>
-                <span id="detailConnInterface">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Last Connected</span>
-                <span id="detailLastConnected">—</span>
-              </div>
-            </div>
-
-            <div class="detail-section">
-              <div class="detail-section-title">Status</div>
-              <div class="detail-row">
-                <span class="detail-row-label">Delivery Available</span>
-                <span id="detailDelivery">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Sanitizer</span>
-                <span id="detailSanitizerAvail">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Bin Level</span>
-                <span id="detailBinLevel">—</span>
-              </div>
-              <div class="detail-section-title" style="margin-top:0.75rem">Gloves In Stock</div>
-              <div class="detail-row">
-                <span class="detail-row-label">Small</span>
-                <span id="detailGlovesSmall">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Medium</span>
-                <span id="detailGlovesMedium">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Large</span>
-                <span id="detailGlovesLarge">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Extra Large</span>
-                <span id="detailGlovesXL">—</span>
-              </div>
-            </div>
-
-            <div class="detail-section">
-              <div class="detail-section-title">Organization</div>
-              <div id="detailDistributorRow" class="detail-row hidden">
-                <span class="detail-row-label">Distributor</span>
-                <span id="detailDistributor">—</span>
-              </div>
-              <div id="detailEndUserRow" class="detail-row hidden">
-                <span class="detail-row-label">End User</span>
-                <span id="detailEndUser">—</span>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Settings tab -->
-        <div id="detailTabSettings" class="detail-content hidden" role="tabpanel">
-          <div id="settingsLoadingMsg" class="detail-loading hidden">Loading settings…</div>
-          <div id="settingsErrorMsg" class="detail-loading detail-loading--error hidden">Could not load settings.</div>
-          <div class="detail-grid">
-
-            <div class="detail-section">
-              <div class="detail-section-title">Software</div>
-              <div class="detail-row">
-                <span class="detail-row-label">SW Version</span>
-                <span id="detailSwVersion">—</span>
-              </div>
-            </div>
-
-            <div class="detail-section">
-              <div class="detail-section-title">Glove Settings</div>
-              <div class="detail-row">
-                <span class="detail-row-label">Default Size</span>
-                <span id="detailDefaultGloveSize">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">NFC Card Required</span>
-                <span id="detailNfcRequired">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">2nd Glove Prompt</span>
-                <span id="detailSecondGlovePrompt">—</span>
-              </div>
-            </div>
-
-            <div class="detail-section">
-              <div class="detail-section-title">Sanitizer Settings</div>
-              <div class="detail-row">
-                <span class="detail-row-label">Serving Volume</span>
-                <span id="detailSanitizerVolume">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Side</span>
-                <span id="detailSanitizerSide">—</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-row-label">Mandatory</span>
-                <span id="detailSanitizerMandatory">—</span>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-      </section>
-      </div><!-- /deviceDetailModal -->
-
-    </main>
-  </div>
-
-</body>
+        <!-- /deviceDetailModal -->
+      </main>
+    </div>
+  </body>
 </html>

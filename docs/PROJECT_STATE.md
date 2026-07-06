@@ -72,6 +72,18 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > frontend unchanged. Deploy run 28797561473 → success. Rollback: `git revert 0794a18 && git push`.
 > Full proof: `claude/INVESTIGATION_2026-07-06_glove-false-zero-null-device-ref.md`.
 
+> **FEATURE 2026-07-06 — Glove Consumption now shows "used / available stock" per size (frontend,
+> live on `main` @ `fc04baa`, assets `?v=20260706-1`).** Each glove size tile shows gloves USED in the
+> selected period (big number) + a "of N in stock" sub-line = CURRENT available inventory, e.g.
+> `Large 6 / of 150 in stock`, with a caption clarifying the split (used = date range; stock =
+> current). **Stock source: the BIOT `cartridge` entity's `current_amount` summed by `cartridge_size`,
+> already fetched + scoped in the `dashboard` action (`state.summary.cartridges`)** — frontend-only, no
+> backend change, no new API call. Honest: stock shown only when known — hidden for manufacturer "all"
+> (scopeHint) and no-cartridge scopes. All four glove states preserved; D1 stays UNAVAILABLE (BIOT
+> 414). Verified live (EC1 8/265, D2 0/241, MFR data+no-stock, D1 unavailable). GitHub Pages only (no
+> backend deploy). Rollback: `git revert fc04baa && git push`. Doc:
+> `claude/FEATURE_2026-07-06_glove-used-vs-stock.md`.
+
 ---
 
 ## 1. What this project is

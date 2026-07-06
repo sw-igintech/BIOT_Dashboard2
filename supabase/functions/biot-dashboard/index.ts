@@ -637,13 +637,18 @@ async function getGloveEventsForOrg(
 
       for (const item of items) {
         if (allowedDeviceIds) {
-          // device_event.device_event is the reference to the source device.
-          // .id holds the device's `_id` string.
+          // device_event.device_event references the source device; .id holds the device's
+          // `_id`. Proven live 2026-07-06: end-customer-org events carry a **null** ref (only
+          // root-org events populate it). Only exclude events positively attributable to an
+          // out-of-scope device (ref present AND not allowed) — still drops the root-org
+          // over-count; null-ref events are already org-scoped so they are COUNTED. The old
+          // `!deviceId` test dropped every null-ref event → false zero for scoped users. See
+          // claude/INVESTIGATION_2026-07-06_glove-false-zero-null-device-ref.md.
           const deviceRef = (item as Record<string, unknown>).device_event;
           const deviceId = deviceRef && typeof deviceRef === "object"
             ? String((deviceRef as Record<string, unknown>).id ?? "")
             : "";
-          if (!deviceId || !allowedDeviceIds.has(deviceId)) continue;
+          if (deviceId && !allowedDeviceIds.has(deviceId)) continue;
         }
         const norm = normalizeGloveSize((item as Record<string, unknown>).event_cartridge_size);
         counts[norm.key] += 1;

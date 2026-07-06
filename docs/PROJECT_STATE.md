@@ -58,6 +58,20 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > device_event ABAC URI build, and/or audit D1's stale device-level authz grants vs D2's). Full proof +
 > per-user comparison: `claude/INVESTIGATION_2026-07-06_glove-414-recurrence-devices-rehomed.md`.
 
+> **FIX 2026-07-06 — glove false-zero for ALL scoped users (backend, live on `main` @ `0794a18`).**
+> QA: *"top glove-consumption section = 0, but the cartridge table below has data"* (D1→EC1). Proven
+> two separate issues: (1) **our bug** — `getGloveEventsForOrg` post-filtered GLOVE_TAKEN events by
+> `device_event.id ∈ scopedDeviceIds`, but **end-customer-org events carry a NULL device reference**
+> (only root-org `igin_device` events populate it), so the old `if (!deviceId || !has) continue`
+> dropped **every** event for **every scoped (non-"all") user** → gloves always 0; only the
+> manufacturer "all" view (filter skipped) ever showed data. (2) D1 separately 414s (above). Fix
+> (1 line): `if (deviceId && !allowedDeviceIds.has(deviceId)) continue;` — count null-ref events (they
+> are already org-scoped), still exclude positively-out-of-scope refs (root over-count protection),
+> "all" unchanged. Verified live + real-browser A/B: **EC1 0→8, EC2 0→3, EC3 0→24**, MFR 5398
+> unchanged, D2 genuine zero, D1 still honest UNAVAILABLE. Backend-only (Deno + Supabase mirror);
+> frontend unchanged. Deploy run 28797561473 → success. Rollback: `git revert 0794a18 && git push`.
+> Full proof: `claude/INVESTIGATION_2026-07-06_glove-false-zero-null-device-ref.md`.
+
 ---
 
 ## 1. What this project is

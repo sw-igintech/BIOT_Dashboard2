@@ -40,6 +40,24 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > giving up early. Capped at 85s because Deno Deploy aborts a request at ~116s. Verified live: STAM
 > gloves run ~86s → clean UNAVAILABLE; MFR → DATA; EC1 → real-zero; main dashboard stays ~1.6s.
 
+> **UPDATE 2026-07-06 — CORRECTION: the prior root-cause attribution is DISPROVEN; D1 gloves still 414
+> (no code change).** The 2026-06-30/07-01 conclusion said D1's (`stamshemyafe`) `device_event` 414s
+> because its inventory machines were owned by the 261k-event root org `00000000`, and recommended
+> re-homing them out of root. **That re-homing was done** — D1's 6 devices are now all under EC1, none
+> in root, and root's `device_event` volume collapsed **261,582 → 5,305** — **yet D1's `device_event`
+> STILL returns HTTP 414** (now in **~2 s**, not ~90 s). Re-proved fresh: 414 is **token-specific**
+> (identical `device_event(EC1)` query is 200/0.3s under EC1, 200/0.4s under MFR) and
+> **`device_event`-specific** (cartridge/orgs/bridges/devices all 200 under D1). It is **independent of
+> device ownership, event volume, org count, `device_distributor` breadth (D1 = 6 links, all EC1, none
+> in root), and JWT scopes (D1 == D2 byte-identical).** True cause: a **BIOT-side ABAC defect that
+> materialises D1's user-level permission set into an over-length internal request URI** — now low
+> enough to trip even a 6-device distributor. **No our-side query shape avoids it** (POST search
+> unsupported; every GET shape 414s); the only mitigation is a service/manufacturer token (rejected
+> security change). Live now: D1 dashboard 2.4s, gloves fail **fast** (~4s) → clean UNAVAILABLE — no
+> regression, strictly better than the old ~86s wait. **Correct remediation is BIOT-side** (fix the
+> device_event ABAC URI build, and/or audit D1's stale device-level authz grants vs D2's). Full proof +
+> per-user comparison: `claude/INVESTIGATION_2026-07-06_glove-414-recurrence-devices-rehomed.md`.
+
 ---
 
 ## 1. What this project is

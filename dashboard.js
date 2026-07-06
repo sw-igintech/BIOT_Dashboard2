@@ -535,14 +535,50 @@ const GLOVE_SVG = `
 
 // Shared metric-tile spec for the glove widget (Total + per-size). Used by both the data
 // and real-zero states so a true zero shows the same honest tiles (all 0), not an error.
+// Map any cartridge/glove size string to the canonical glove breakdown key.
+function gloveSizeKey(size) {
+  const k = String(size || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (k === "s" || k === "small") return "small";
+  if (k === "m" || k === "med" || k === "medium") return "medium";
+  if (k === "l" || k === "large") return "large";
+  if (k === "xl" || k === "xlarge" || k === "extra_large") return "extraLarge";
+  return null;
+}
+
+// Current available glove stock per size, summed from the scoped cartridge inventory that the
+// `dashboard` action already returned (state.summary.cartridges). Source of truth: BIOT `cartridge`
+// entity `current_amount` (gloves remaining), scoped per user/org/distributor exactly like the
+// glove-consumption events. Returns null when stock is unknown for this scope — i.e. the
+// manufacturer "all" view (cartridges intentionally not fetched → scopeHint) or no cartridges — so
+// the widget shows consumption only, never a misleading "0 in stock". NOT date-bound: stock is
+// current inventory, whereas the consumption counts respect the selected date range.
+function gloveStockBySize() {
+  const cart = state.summary && state.summary.cartridges;
+  if (!cart || cart.scopeHint || !Array.isArray(cart.items) || !cart.items.length) return null;
+  const stock = { small: 0, medium: 0, large: 0, extraLarge: 0 };
+  for (const c of cart.items) {
+    const key = gloveSizeKey(c.size);
+    if (!key) continue;
+    if (Number.isFinite(c.currentAmount)) stock[key] += c.currentAmount;
+  }
+  return stock;
+}
+
 function gloveMetricItems(g) {
   const counts = (g && g.counts) || {};
+  const stock = gloveStockBySize();
+  // "used / available": the tile's big number is gloves USED in the selected period; the sub-line
+  // is CURRENT available stock for that size. Omitted when stock is unknown for the scope.
+  const sub = (key) => (stock ? `of ${formatNumber(stock[key])} in stock` : null);
+  const totalStock = stock
+    ? stock.small + stock.medium + stock.large + stock.extraLarge
+    : null;
   return [
-    { label: "Total Events", value: g ? g.total : 0 },
-    { label: "Small", value: counts.small },
-    { label: "Medium", value: counts.medium, cls: "metric-tile--sm" },
-    { label: "Large", value: counts.large, cls: "metric-tile--sm" },
-    { label: "Extra Large", value: counts.extraLarge, cls: "metric-tile--sm" },
+    { label: "Total Events", value: g ? g.total : 0, sub: totalStock === null ? null : `of ${formatNumber(totalStock)} in stock` },
+    { label: "Small", value: counts.small, sub: sub("small") },
+    { label: "Medium", value: counts.medium, cls: "metric-tile--sm", sub: sub("medium") },
+    { label: "Large", value: counts.large, cls: "metric-tile--sm", sub: sub("large") },
+    { label: "Extra Large", value: counts.extraLarge, cls: "metric-tile--sm", sub: sub("extraLarge") },
   ];
 }
 
@@ -564,6 +600,11 @@ function setGloveState(kind, payload) {
   const canvas = document.getElementById("gloveChart");
   const legend = document.getElementById("gloveLegend");
   const tip = document.getElementById("gloveTip");
+  const stockNote = document.getElementById("gloveStockNote");
+  // Show the used-vs-stock caption only for real results (data/zero) AND only when stock is
+  // known for this scope (hidden for manufacturer "all" / no cartridges, loading, unavailable).
+  const showStockNote = (kind === "data" || kind === "zero") && gloveStockBySize() !== null;
+  if (stockNote) stockNote.classList.toggle("hidden", !showStockNote);
 
   if (kind === "loading" || kind === "unavailable") {
     // Replace the whole glove body with a prominent, centered status overlay.
@@ -1236,6 +1277,14 @@ function renderMetrics(containerId, items) {
 
     tile.appendChild(label);
     tile.appendChild(value);
+    // Optional secondary line (e.g. glove "of N in stock"). Only tiles that provide item.sub
+    // render it; all other widgets pass no sub and are unchanged.
+    if (item.sub) {
+      const sub = document.createElement("div");
+      sub.className = "metric-sub";
+      sub.textContent = item.sub;
+      tile.appendChild(sub);
+    }
     container.appendChild(tile);
   });
 }

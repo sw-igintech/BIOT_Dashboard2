@@ -20,8 +20,8 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
     />
-    <link rel="stylesheet" href="./dashboard.css?v=20260630-3" />
-    <script src="./dashboard.js?v=20260630-3" defer></script>
+    <link rel="stylesheet" href="./dashboard.css?v=20260706-1" />
+    <script src="./dashboard.js?v=20260706-1" defer></script>
   </head>
   <body>
     <!-- Login view — shown when not authenticated -->
@@ -190,6 +190,11 @@
             <!-- Glove data content — hidden while the status overlay is shown. -->
             <div id="gloveContent">
               <div id="gloveMetrics" class="metric-grid"></div>
+              <!-- Honesty caption for the used/stock split: consumption respects the date range,
+                   stock is current inventory. Shown only when stock is known for the scope. -->
+              <div id="gloveStockNote" class="glove-stock-note hidden">
+                Consumption is for the selected date range · “in stock” is current inventory.
+              </div>
               <div class="chart-layout">
                 <div class="chart-area">
                   <canvas

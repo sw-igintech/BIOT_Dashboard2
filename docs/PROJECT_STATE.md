@@ -84,6 +84,24 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > backend deploy). Rollback: `git revert fc04baa && git push`. Doc:
 > `claude/FEATURE_2026-07-06_glove-used-vs-stock.md`.
 
+> **INVESTIGATION 2026-07-06 — BIOT support (Sasho) distributor-scope hypothesis: DISPROVEN (no code
+> change).** Sasho claimed distributor glove failure is because we scope `device_event` by
+> `_ownerOrganization.id` (org rule) instead of distributor rules, and to fix it use distributor
+> filtering or "resolve visible devices then query events by those devices". Tested every alternative
+> live under D1's token: our org query, **no filter (pure ABAC)**, **by `device_event.id IN [devices]`**,
+> single device id, `device_distributor.id`, and even a 134-char no-filter request — **ALL return
+> HTTP 414**; identical URLs succeed under MFR. So the 414 is a BIOT-internal ABAC URI overflow,
+> **token-specific and query-independent** — removing the org filter and using device-based filtering
+> (exactly Sasho's fixes) both still 414. Also **D2 is a distributor on the same code path and its
+> `device_event` returns 200** (0 events), so it is **not** a distributor-class issue — only D1's token.
+> D2's zero is itself BIOT-side: its orgs' events all carry a **null device reference**, so a
+> distributor (device-based ABAC) is served none — for every query shape. **Root cause = two BIOT-side
+> defects: (1) `device_event` ABAC URI overflow for D1's token (414); (2) null `device_event→device`
+> references, which also break Sasho's own device-based approach.** Our org+device-post-filter logic is
+> correct (D2 proves it) and is not the cause. No our-side fix possible without a service-token ABAC
+> bypass (rejected). Top-vs-bottom (D1): top `device_event`→414→UNAVAILABLE, bottom `cartridge`→200→16;
+> different endpoints, BIOT-side. Full proof: `claude/INVESTIGATION_2026-07-06_sasho-distributor-scope-hypothesis.md`.
+
 ---
 
 ## 1. What this project is

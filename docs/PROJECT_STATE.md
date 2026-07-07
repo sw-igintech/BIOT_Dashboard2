@@ -116,6 +116,20 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > ABAC for drum + device_current_settings. Message-for-Sasho + full evidence:
 > `claude/RETEST_2026-07-07_biot-fix-verification.md`.
 
+> **AUDIT 2026-07-07 — skeptical re-validation of everything told Sasho (no code change).** Headlines
+> hold (414 fixed ✓; null-ref + GET-by-id AC remain ✗), but found **1 overstatement + 2 nuances** to
+> correct: (1) **CORRECTION** — we said "*every* GLOVE_TAKEN event has null device ref"; that's WRONG —
+> **root-org glove events ARE linked** (18,363, populated); the null-ref is **specific to end-customer
+> orgs** EC1/EC2/EC3. Verified null is a REAL property (same via search AND GET-by-id, e.g. EC1 event
+> `185feb37…` → device_event:null) not a list artifact. (2) **NUANCE** — **noam (D2) is ALSO affected**
+> by null-refs (EC2/EC3 hold only D2's devices; their 4+24 glove events are null-ref → D2 sees 0), not a
+> "clean genuine zero"; it just has no 414. (3) **NUANCE** — ligeva's "DATA(8)" is window-dependent
+> (events ≥16d old → default 13-day view shows real-zero; data on widening); unchanged by the fix.
+> GET-by-id gap STRENGTHENED: D1's SEARCH is correctly scoped (12 EC1 drums) but GET-by-id returns
+> entities from **fully-foreign orgs** (test-igin-org, Org Sample, Test-4.11.25) → all 200, for drum/
+> settings/cartridge/device_event. No our-side bug; nothing mis-blamed on BIOT. Corrected message for
+> Sasho + full proof: `claude/AUDIT_2026-07-07_sasho-claims-revalidation.md`.
+
 ---
 
 ## 1. What this project is

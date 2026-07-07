@@ -102,6 +102,20 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > bypass (rejected). Top-vs-bottom (D1): top `device_event`→414→UNAVAILABLE, bottom `cartridge`→200→16;
 > different endpoints, BIOT-side. Full proof: `claude/INVESTIGATION_2026-07-06_sasho-distributor-scope-hypothesis.md`.
 
+> **RETEST 2026-07-07 — BIOT deployed a fix to dev; verified (no code change). PARTIAL.** ✅ The
+> **`device_event` 414 is ELIMINATED** — D1 (`stamshemyafe`) now returns 200 (~0.5s) for every query
+> shape (was 414); D2 (`noamkatsir`) and EC1 (`ligeva`) still work; no regressions (machines/cartridges/
+> other widgets fine, MFR DATA 5562). D1's dashboard now loads fast and the glove widget shows a clean
+> **REAL-ZERO** ("0 used · of 925 in stock") instead of the ⚠ unavailable overlay. ❌ **BUT distributor
+> glove DATA still doesn't load:** D1 now sees 472 device_events (all with populated device refs) but
+> **0 GLOVE_TAKEN**, because **GLOVE_TAKEN events still carry `device_event = null`** (verified D1/EC1/MFR:
+> EC1 has 10, all null-ref) and BIOT's (now device-linkage-based) distributor ABAC serves none. ❌ **The
+> distributor GET-by-id access control is NOT enforced:** as D1 (serves EC1/EC2 only) I read foreign EC3
+> `drum`, `device_current_settings`, and `device_event` by id (v1 AND v3) → all 200; should be blocked.
+> Two BIOT-side items remain: (a) populate `device_event→device` on GLOVE_TAKEN; (b) enforce GET-by-id
+> ABAC for drum + device_current_settings. Message-for-Sasho + full evidence:
+> `claude/RETEST_2026-07-07_biot-fix-verification.md`.
+
 ---
 
 ## 1. What this project is

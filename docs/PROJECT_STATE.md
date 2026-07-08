@@ -145,6 +145,21 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > org admins DATA (window-dependent). No our-side bug. Proof + message for Sasho:
 > `claude/REVALIDATION_2026-07-08_sasho-followup.md`.
 
+> **VERIFICATION 2026-07-08 (later) — Sasho's exact GET-by-id URLs + stam gloves now WORK (no code
+> change).** ✅ **GET-by-id fix confirmed on the exact path Sasho tested** — as stam, `GET /generic-entity/
+> v3/generic-entities/drum/24657ff7…` and `…/device_current_settings/66b03f7c…` now return **403
+> ACCESS_DENIED**; stam's OWN drum/settings via the same v3 path still 200 (correct, not over-blocking).
+> ⚠️ **Remaining gap:** the **v1 id-only path** `/generic-entity/v1/generic-entities/{id}` is **still
+> open** (foreign → 200) — org admins are blocked there too, so it's distributor-specific; and it's the
+> path our dashboard's `entity` action uses. BIOT should extend enforcement to v1. ✅ **stam glove
+> consumption now WORKS with real data (DATA 41):** fresh GLOVE_TAKEN events with a populated
+> `device_event` link were generated on dev today (device `Machine-26-080726`); stam sees the 40 linked
+> events. Proves the historical-vs-current split — EC1 admin sees 50 (=40 linked + 10 old null-ref),
+> distributor sees exactly the 40 linked. UI renders DATA (tiles+chart+used/stock), no errors. **No need
+> to generate more events.** D2/noam still 0 (no freshly-linked events on its devices yet — residual
+> historical data, not a path failure). Full sweep: D1 DATA(41)/EC1 DATA(49)/EC2 DATA(3)/EC3 DATA(24)/
+> MFR DATA(5661); no 414/regression. Proof + Sasho message: `claude/VERIFICATION_2026-07-08b_sasho-getbyid-and-gloves.md`.
+
 ---
 
 ## 1. What this project is

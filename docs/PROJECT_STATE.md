@@ -130,6 +130,21 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > settings/cartridge/device_event. No our-side bug; nothing mis-blamed on BIOT. Corrected message for
 > Sasho + full proof: `claude/AUDIT_2026-07-07_sasho-claims-revalidation.md`.
 
+> **RE-VALIDATION 2026-07-08 — Sasho's follow-up GET-by-id fix + glove-linkage explanation (no code
+> change).** ❌ **The follow-up GET-by-id fix did NOT take effect for distributors.** Org admins are
+> correctly restricted (EC1/EC2/EC3 → **403** on a foreign drum), but distributor D1 still reads foreign
+> drums/settings by id (v1 AND v3) from EVERY org tested (EC3, test-igin-org, Org Sample, Test-4.11.25)
+> → all **200**. So the gap is **distributor-specific** (D1 & D2, both root-homed) and still open. ✅
+> **Sasho's glove-linkage explanation CONFIRMED** by a same-query/different-token proof: `device_event
+> (EC1, GLOVE_TAKEN, 120d)` returns **10** rows for MFR and the EC1 **org admin** (all `device_event=null`)
+> but **0** for **distributor** D1 (device-link ABAC excludes null-linked rows); D2 identical (EC2 4/0,
+> EC3 24/0). **CORRECTION to Sasho:** our query shape is NOT the lever — BIOT returns 0 to D1 for org
+> filter, no filter, AND `device_event.id IN [devices]` alike, so no dashboard query change surfaces the
+> data; fix is 100% BIOT-side (populate `device_event→device` on end-customer-org glove events; root
+> events already linked). No regressions; distributors show honest REAL-ZERO ("0 used · N in stock"),
+> org admins DATA (window-dependent). No our-side bug. Proof + message for Sasho:
+> `claude/REVALIDATION_2026-07-08_sasho-followup.md`.
+
 ---
 
 ## 1. What this project is

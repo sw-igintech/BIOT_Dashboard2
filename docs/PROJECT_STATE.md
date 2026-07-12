@@ -160,6 +160,20 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > historical data, not a path failure). Full sweep: D1 DATA(41)/EC1 DATA(49)/EC2 DATA(3)/EC3 DATA(24)/
 > MFR DATA(5661); no 414/regression. Proof + Sasho message: `claude/VERIFICATION_2026-07-08b_sasho-getbyid-and-gloves.md`.
 
+> **HARDENING 2026-07-12 — `entity` action migrated off the open v1 path to the ABAC-enforced v3 path
+> (LIVE on `main` @ `ef7c97e`, backend-only).** The device-settings `entity` action fetched
+> `device_current_settings` via `GET /generic-entity/v1/generic-entities/{id}` — a path BIOT does NOT
+> enforce distributor ABAC on. Switched to the template-scoped `GET /generic-entity/v3/generic-entities/
+> device_current_settings/{id}` (BIOT enforces it: distributor foreign → 403). **Verified:** v3 returns a
+> byte-identical settings body for permitted ids; all users' OWN device settings still load (200); the
+> distributor foreign leak via our proxy is now closed (D1 → EC3 settings: v1 200 → v3 403/action 500);
+> real-browser Settings tab identical on v1 vs v3 (Machine-26-080726 → small/5/left/No/Yes). Full
+> dashboard sweep clean, no regression (only the `entity` action changed; Deno + Supabase mirror; frontend
+> unchanged, no asset bump). Deno deploy run 29191288984 → success. **Remaining BIOT-side (not ours):**
+> `v1/generic-entities/{id}` still open on BIOT (we no longer use it); v3 `device_current_settings` still
+> permits org-admin cross-org reads (unlike `drum`). Rollback: `git revert ef7c97e && git push`. Full
+> proof: `claude/HARDENING_2026-07-12_entity-v3-migration.md`.
+
 ---
 
 ## 1. What this project is

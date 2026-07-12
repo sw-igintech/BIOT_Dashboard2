@@ -209,7 +209,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return err({ ok: false, error: { message: "id parameter is required." } }, 400);
       }
       const config: BiotConfig = { baseUrl: getBaseUrl() };
-      const data = await fetchBiot(config, "GET", `/generic-entity/v1/generic-entities/${entityId}`, {
+      // Template-scoped v3 path (not legacy id-only v1): the `entity` action only fetches device
+      // settings (device_current_settings). BIOT enforces distributor ABAC on the v3 template path
+      // (foreign → 403) but not on v1/generic-entities/{id}. v3 returns an identical body for a
+      // permitted id. Mirror of the Deno backend. See claude/HARDENING_2026-07-12_entity-v3-migration.md.
+      const data = await fetchBiot(config, "GET", `/generic-entity/v3/generic-entities/device_current_settings/${entityId}`, {
         accessToken: userToken,
       });
       return ok({ ok: true, data });

@@ -267,10 +267,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
         );
       }
       const config: BiotConfig = { baseUrl: getBaseUrl() };
+      // Fetch via the template-scoped v3 path, NOT the legacy id-only v1 path. The `entity` action
+      // is used exclusively for device settings (the frontend passes device.current_settings2.id,
+      // template `device_current_settings`). BIOT enforces distributor ABAC on the v3 template path
+      // (foreign ids → 403) but NOT on `v1/generic-entities/{id}` (still returns foreign entities to
+      // distributor tokens). v3 returns an identical settings body for a permitted id (verified live
+      // 2026-07-12: same fields for MFR/EC1/D1 own settings), so this is a pure hardening swap with no
+      // data-shape change. See claude/HARDENING_2026-07-12_entity-v3-migration.md.
       const data = await fetchBiot(
         config,
         "GET",
-        `/generic-entity/v1/generic-entities/${entityId}`,
+        `/generic-entity/v3/generic-entities/device_current_settings/${entityId}`,
         {
           accessToken: userToken,
         },

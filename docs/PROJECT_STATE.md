@@ -174,6 +174,24 @@ how it deploys, how to roll back, what is historical, and what remains open. Las
 > permits org-admin cross-org reads (unlike `drum`). Rollback: `git revert ef7c97e && git push`. Full
 > proof: `claude/HARDENING_2026-07-12_entity-v3-migration.md`.
 
+> **FIX 2026-07-14 — distributor scope no longer inherits the manufacturer root org (LIVE on `main` @
+> `a88a697`, backend-only).** A manufacturer selecting distributor **BEMAR Srl** saw **126 devices /
+> 7,810 cartridges / 5,546 gloves / manufacturer-level sanitizer+operational**, while BIOT's
+> "Distributor Devices" tab shows **0**. Root cause: an `organization_to_distributor` bridge incorrectly
+> links the shared manufacturer **root org `00000000`** to BEMAR (also `dist1`, `Matan test`), and
+> `buildDistributorToOrgsMap` added root to the distributor's child-org set → `resolveScope`
+> `organizationIds=[root]` → every distributor-scoped widget expanded to the whole estate. **Fix (single
+> central guard):** `buildDistributorToOrgsMap` now skips bridges whose owner org is the root org (plus
+> the existing missing/`<<Global>>` skip); this one spot feeds `resolveScope`, so devices, cartridges,
+> glove events, sanitizer, operational, and the machine list are all corrected. Deno + Supabase mirror
+> in parity; frontend unchanged. **Verified live (23/23 regression, both local + deployed):** BEMAR
+> 126→**0** devices (gloves 5546→0, cartridges 7810→**58** = its own direct stock, all widget counts →0);
+> `dist1`→0; `Matan test`→1 (direct only); **D1 8 / D2 2 unchanged; manufacturer all 136 unchanged**.
+> `scripts/scope-regression.mjs` added. **BIOT data NOT mutated** (risky on shared dev data; guard makes
+> it safe regardless) — 3 invalid bridge entities still need admin cleanup:
+> `07d980b1-…`(root→BEMAR), `b39ce951-…`(root→dist1), `3c1e7f5f-…`(root→Matan test). Rollback:
+> `git revert a88a697 && git push`. Full proof: `claude/INVESTIGATION_2026-07-14_bemar-distributor-scope.md`.
+
 ---
 
 ## 1. What this project is

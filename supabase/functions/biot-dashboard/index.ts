@@ -1120,17 +1120,27 @@ function distLabel(distributors: Distributor[], id: string | null): string {
   return distributors.find((d) => d.id === id)?.name ?? id;
 }
 
+// The shared manufacturer root organization (owns the whole estate; never a distributor customer org).
+// A bridge whose owner org is the root org is invalid data and must not expand distributor scope.
+// Mirror of the Deno backend. See claude/INVESTIGATION_2026-07-14_bemar-distributor-scope.md.
+const MANUFACTURER_ROOT_ORG_ID = "00000000-0000-0000-0000-000000000000";
+
 // Build distributor-id → child-org-id[] from organization_to_distributor bridge entities.
 // Bridge shape (confirmed live 2026-05-19):
 //   _ownerOrganization.id  = child org id
 //   organization_distributor.id = distributor id
 // One distributor may have many child orgs; one org may belong to many distributors.
+// GUARD (central): skip bridges with a missing/<<Global>> owner or the shared manufacturer root org,
+// so a bad root bridge can't expand a distributor to the whole estate. Drives every distributor-scoped
+// widget (devices, cartridges, glove events, sanitizer, operational, machine list) via resolveScope.
 function buildDistributorToOrgsMap(bridges: unknown[]): Record<string, string[]> {
   const out: Record<string, Set<string>> = {};
   for (const b of bridges) {
     const orgId = nestedGet(b, ["_ownerOrganization", "id"]) as string | null;
     const distId = nestedGet(b, ["organization_distributor", "id"]) as string | null;
     if (!orgId || !distId) continue;
+    // Never treat the shared manufacturer root org as a distributor's customer org.
+    if (orgId === MANUFACTURER_ROOT_ORG_ID) continue;
     (out[distId] ??= new Set()).add(orgId);
   }
   const result: Record<string, string[]> = {};

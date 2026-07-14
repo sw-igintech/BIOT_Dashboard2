@@ -1533,11 +1533,25 @@ function distLabel(distributors: Distributor[], id: string | null): string {
   return distributors.find((d) => d.id === id)?.name ?? id;
 }
 
+// The shared manufacturer root organization. It owns the whole manufacturer estate and is NOT a
+// distributor's customer organization. An organization_to_distributor bridge whose owner org is the
+// root org is invalid data (observed 2026-07-14 for BEMAR Srl / dist1 / Matan test): it would expand
+// that distributor's scope to every root-owned device/cartridge/event. This is the single guarded
+// constant used to reject such bridges centrally in buildDistributorToOrgsMap.
+const MANUFACTURER_ROOT_ORG_ID = "00000000-0000-0000-0000-000000000000";
+
 // Build distributor-id → child-org-id[] from organization_to_distributor bridge entities.
 // Bridge shape (confirmed live 2026-05-19):
 //   _ownerOrganization.id  = child org id
 //   organization_distributor.id = distributor id
 // One distributor may have many child orgs; one org may belong to many distributors.
+//
+// GUARD (central, protects ALL distributor-scoped widgets): a bridge whose owner org is missing, the
+// special <<Global>> owner (id null/empty), or the shared manufacturer root org is NOT a legitimate
+// customer-org link and is skipped. This is the one place distributor→child-org membership is built
+// and it feeds resolveScope().organizationIds, which in turn drives device scope, cartridge scope,
+// glove/event scope, sanitizer, operational, and the machine list. Legitimate customer-org bridges
+// (e.g. D1→EC1/EC2, D2→EC3) are untouched. See claude/INVESTIGATION_2026-07-14_bemar-distributor-scope.md.
 function buildDistributorToOrgsMap(
   bridges: unknown[],
 ): Record<string, string[]> {
@@ -1548,6 +1562,8 @@ function buildDistributorToOrgsMap(
       | string
       | null;
     if (!orgId || !distId) continue;
+    // Never treat the shared manufacturer root org as a distributor's customer org.
+    if (orgId === MANUFACTURER_ROOT_ORG_ID) continue;
     (out[distId] ??= new Set()).add(orgId);
   }
   const result: Record<string, string[]> = {};
